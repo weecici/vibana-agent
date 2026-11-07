@@ -1,0 +1,21 @@
+[project]
+name = "vibana-agent"
+version = "0.1.0"
+description = "Vision-based UI Navigation Agent."
+readme = "README.md"
+authors = [
+    { name = "Nguyen Chi Cuong" },
+    { name = "Tran Le Duy" },
+    { name = "Dang Truong Hung" },
+    { name = "Phan Thuy Phuong" },
+    { name = "Nguyen Hoang Quan" },
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+vibana-agent = "vibana_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
