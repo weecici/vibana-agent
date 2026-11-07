@@ -1,8 +1,9 @@
 # Vibana Agent
 
-Vision-based UI Navigation Agent
+> Vibana - Vision-based UI Navigation Agent
 
-Group: _Quantity_ **OVER** _Quality_
+Group: _Quantity_ **>>>>>** _Quality_
+
 Members:
 
 | Name              | Account    | GitLab |
