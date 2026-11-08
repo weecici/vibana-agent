@@ -14,7 +14,7 @@ Rules for anything that calls the model:
 2. **Downscale screenshots before inference.** Qwen3-VL turns each 32x32 px block into one visual token, so a 1920x1080 frame costs about 2,000 tokens. Cap the longest side at 1280 px (about 900 tokens). Keep the scale factor and convert coordinates back to the original resolution.
 3. **Deterministic decoding**: `temperature=0`, fixed `seed`.
 4. **Structured output only**: pass a JSON schema via Ollama's `format`; parse into a pydantic model; reject anything that fails validation (counts as a step `ERROR` attempt, never as a guess).
-5. **One model loaded at a time.** Run perception (OCR/OpenCV) and the VLM sequentially, not concurrently. Prefer headless Chromium.
+5. **One model loaded at a time.** Run perception (OCR/OpenCV) and the VLM sequentially, not concurrently. Use headless Chromium for the mock benchmark and a Linux virtual pointer for live navigation.
 6. Recommended server env: `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_MAX_LOADED_MODELS=1`; optionally `OLLAMA_KV_CACHE_TYPE=q8_0` (requires flash attention). Document any change in the README, not in code.
 7. Coordinate contract: the grounding model returns coordinates normalized to [0, 1000]. `grounding/coords.py` is the only place that converts to pixels, and `tests/model/test_coordinate_calibration.py` verifies the convention against a known target. If a different model is configured, that test must pass before anything else is trusted.
 
@@ -32,7 +32,7 @@ src/vibana_agent/
   perception/       # preprocessing, OCR, OpenCV region proposals, element registry, numbered overlay
   grounding/        # Ollama client, prompts, candidate selection, coordinate conversion
   planner/          # instruction -> typed Step (rule-based grammar first, LLM fallback)
-  executor/         # Executor Protocol; Playwright backend; screenshot-replay backend
+  executor/         # Executor Protocol; Playwright, desktop, and replay backends
   verifier/         # visual postcondition checks (OCR text, region diff, VLM yes/no)
   controller/       # step loop, retries, budgets, verdicts
   report/           # report.json, report.html, annotated screenshots
@@ -62,7 +62,7 @@ The **controller**, not the model, decides when to advance and when the task has
 - **Two layers of verification.** (a) The _agent-side verifier_ is visual only and is what ships on any real UI. (b) The _harness-side oracle_ (app state in the mock HMI) is used only by `eval/` to grade the agent and to measure verifier agreement. Never feed the oracle back into the agent.
 - **Never execute model output as code.** The model proposes an `Action` from a closed set: `click`, `double_click`, `long_press`, `scroll`, `swipe`, `type_text`, `wait`, `assert_visible`, `assert_text`. Anything else is invalid output.
 - **Validate before acting**: clamp or reject coordinates outside the viewport; enforce `max_attempts` per step and `max_steps` per run; every external call has a timeout.
-- Executors implement one `Protocol` (`capture()`, `perform(action)`, `viewport()`), so Playwright (web HMI), screenshot replay (offline, no clicks), and a future desktop-capture backend are interchangeable.
+- Executors implement one `Protocol` (`capture()`, `perform(action)`, `viewport()`), so Playwright (web HMI), screenshot replay (offline, no clicks), and the Linux desktop backend are interchangeable. Desktop pointer input uses `python-evdev` and `/dev/uinput` on Wayland or X11. Wayland capture uses `grim`; X11 capture uses Pillow. Live actions run automatically inside an explicit screen region, and the desktop backend rejects changed target pixels before clicking.
 
 ---
 
@@ -70,7 +70,7 @@ The **controller**, not the model, decides when to advance and when the task has
 
 ### Scenario format
 
-Scenarios are YAML files in `scenarios/`, validated by the pydantic `Scenario` model. Each step has free text plus an explicit, checkable `expect`:
+Scenarios are YAML files in `scenarios/`, validated by the pydantic `Scenario` model. Mock and replay benchmarks retain explicit, checkable `expect` values:
 
 ```yaml
 name: settings_brightness_70
@@ -86,7 +86,7 @@ steps:
     expect: { text_visible: "Home" }
 ```
 
-A step without an `expect` is a validation error. "It looked fine" is not a pass criterion.
+Desktop scenarios may omit `expect`. In that case a vision model compares fresh before and after screenshots and must return positive, specific evidence; `unmet` and `uncertain` do not pass. This is a weaker pass criterion than explicit OCR and requires report review before the result is trusted.
 
 ### Statuses and verdicts
 

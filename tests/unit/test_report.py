@@ -63,6 +63,32 @@ def test_report_contains_required_artifacts(tmp_path: Path) -> None:
     assert "01_action.png" in html
 
 
+def test_failed_attempt_keeps_real_before_screenshot(tmp_path: Path) -> None:
+    """A stopped attempt displays its capture without fabricating later frames."""
+    report = Report(
+        scenario="stopped",
+        status="FAIL",
+        steps=[
+            StepResult(
+                instruction="Open Calendar",
+                status="ERROR",
+                attempts=[Attempt(status="ACTION_ERROR", latency_ms=1)],
+            )
+        ],
+    )
+    png = image_bytes()
+    folder = write_report(
+        report,
+        [Frame(step_number=1, attempt_number=1, before=png)],
+        tmp_path,
+    )
+    assert (folder / "01_before.png").read_bytes() == png
+    assert (folder / "final.png").read_bytes() == png
+    assert not (folder / "01_action.png").exists()
+    assert not (folder / "01_after.png").exists()
+    assert "No post-action screenshot" in (folder / "report.html").read_text()
+
+
 def test_missing_service_is_infra_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -82,7 +108,8 @@ def test_missing_service_is_infra_error(
     assert "install chromium" in (report.error or "")
     assert (folder / "report.html").is_file()
     assert [step.status for step in report.steps] == ["SKIPPED"] * 4
-    assert (folder / "04_after.png").is_file()
+    assert not (folder / "04_after.png").exists()
+    assert "Step not captured" in (folder / "report.html").read_text()
 
 
 def test_cli_accepts_run_subcommand(

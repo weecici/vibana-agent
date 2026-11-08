@@ -1,12 +1,15 @@
 """Safe local screenshot and click backends."""
 
 import logging
+import os
+import sys
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import unquote, urlparse
 
-from PIL import Image
+from PIL import Image, ImageChops
 from playwright.sync_api import (
     Browser,
     BrowserContext,
@@ -15,28 +18,116 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from vibana_agent.schema import Action, Candidate
+from vibana_agent.desktop import (
+    DesktopGui,
+    GrimCapture,
+    VirtualPointerBackend,
+    X11Capture,
+)
+from vibana_agent.schema import Action, Box, Candidate
 
 logger = logging.getLogger(__name__)
+_DESKTOP_STABILITY_RADIUS_PX = 32
 
 
 class SafetyError(ValueError):
     """An action violates the local prototype's click policy."""
 
 
+class DesktopExecutor:
+    """Linux desktop executor restricted to a selected screen region."""
+
+    def __init__(
+        self,
+        region: Box,
+        gui: DesktopGui | None = None,
+        session_type: str | None = None,
+    ) -> None:
+        session = session_type or os.environ.get("XDG_SESSION_TYPE", "")
+        if not sys.platform.startswith("linux"):
+            raise SafetyError("desktop control requires Linux")
+        if session.casefold() not in {"x11", "wayland"}:
+            raise SafetyError("desktop control requires X11 or Wayland")
+        if gui is not None:
+            self._gui = gui
+        elif session.casefold() == "wayland":
+            self._gui = VirtualPointerBackend(GrimCapture())
+        else:
+            self._gui = VirtualPointerBackend(X11Capture())
+        screen_width, screen_height = self._gui.size()
+        if (
+            region.x + region.width > screen_width
+            or region.y + region.height > screen_height
+        ):
+            self._gui.close()
+            raise SafetyError("desktop region is outside the primary screen")
+        self._region = region
+        self._before: Image.Image | None = None
+
+    def _screenshot(self) -> Image.Image:
+        return self._gui.screenshot(
+            (
+                self._region.x,
+                self._region.y,
+                self._region.width,
+                self._region.height,
+            )
+        ).convert("RGB")
+
+    def capture(self) -> bytes:
+        """Capture the chosen desktop region in local screenshot pixels."""
+        image = self._screenshot()
+        self._before = image
+        output = BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+    def perform(self, action: Action) -> None:
+        """Activate a pixel if it is in bounds and its nearby target is unchanged."""
+        if not (
+            0 <= action.x < self._region.width and 0 <= action.y < self._region.height
+        ):
+            raise SafetyError("click is outside the desktop region")
+        if self._before is None:
+            raise SafetyError("a fresh screenshot is required before clicking")
+        current = self._screenshot()
+        radius = _DESKTOP_STABILITY_RADIUS_PX
+        target_bounds = (
+            max(0, action.x - radius),
+            max(0, action.y - radius),
+            min(self._region.width, action.x + radius + 1),
+            min(self._region.height, action.y + radius + 1),
+        )
+        before_target = self._before.crop(target_bounds)
+        current_target = current.crop(target_bounds)
+        if ImageChops.difference(before_target, current_target).getbbox() is not None:
+            raise SafetyError("desktop target changed before the click")
+        self._gui.click(self._region.x + action.x, self._region.y + action.y)
+        self._before = None
+
+    def viewport(self) -> tuple[int, int]:
+        """Return the selected region dimensions in local screenshot pixels."""
+        return self._region.width, self._region.height
+
+    def close(self) -> None:
+        """Release the cached screenshot and virtual input device."""
+        self._before = None
+        self._gui.close()
+
+
 class Executor(Protocol):
     """Capture and act in screenshot pixel coordinates."""
 
     def capture(self) -> bytes:
-        """Return a PNG of the current viewport in CSS pixels."""
+        """Return a PNG in local viewport pixels (CSS on browser targets)."""
         ...
 
     def perform(self, action: Action) -> None:
-        """Perform a validated action in CSS pixels."""
+        """Perform a validated action in local viewport pixels."""
         ...
 
     def viewport(self) -> tuple[int, int]:
-        """Return viewport width and height in CSS pixels."""
+        """Return viewport width and height in local pixels."""
         ...
 
     def close(self) -> None:
@@ -54,9 +145,10 @@ def validate_action(
     viewport: tuple[int, int],
     instruction: str,
     candidate: Candidate,
+    allow_unlisted: bool = False,
 ) -> None:
     """Reject clicks outside the chosen region or the local safe workflow."""
-    if instruction not in _ALLOWED_INSTRUCTIONS:
+    if not allow_unlisted and instruction not in _ALLOWED_INSTRUCTIONS:
         raise SafetyError("instruction is not allowed in the local prototype")
     width, height = viewport
     if not (0 <= action.x < width and 0 <= action.y < height):

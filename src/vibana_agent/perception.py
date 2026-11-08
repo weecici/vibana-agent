@@ -1,5 +1,6 @@
 """Screenshot-only OCR and region proposals in original screenshot pixels."""
 
+import re
 from io import BytesIO
 
 import cv2
@@ -37,7 +38,7 @@ def resize_for_model(image: bytes, max_side: int = 1280) -> tuple[bytes, float]:
 def _ocr_boxes(image: Image.Image) -> list[tuple[Box, str]]:
     global _ocr_engine
     if _ocr_engine is None:
-        _ocr_engine = RapidOCR()
+        _ocr_engine = RapidOCR(params={"Global.log_level": "warning"})
     result = _ocr_engine(np.array(image.convert("RGB")))
     lines = result.to_json() or []
     found: list[tuple[Box, str]] = []
@@ -86,11 +87,49 @@ def _overlap(first: Box, second: Box) -> float:
     return intersection / smaller
 
 
-def perceive(image: bytes) -> list[Candidate]:
-    """Find OCR lines and rectangular regions in screenshot pixels."""
+def _instruction_terms(instruction: str | None) -> set[str]:
+    if instruction is None:
+        return set()
+    ignored = {
+        "at",
+        "click",
+        "for",
+        "from",
+        "in",
+        "on",
+        "open",
+        "please",
+        "select",
+        "tap",
+        "the",
+        "to",
+        "with",
+    }
+    return {
+        term
+        for term in re.findall(r"[a-z0-9]+", instruction.casefold())
+        if len(term) > 1 and term not in ignored
+    }
+
+
+def perceive(image: bytes, instruction: str | None = None) -> list[Candidate]:
+    """Find OCR lines and rectangular regions in screenshot pixels.
+
+    Args:
+        image: Screenshot bytes whose regions use screenshot pixel coordinates.
+        instruction: Optional goal used to prioritize matching visible text.
+    """
     screenshot = Image.open(BytesIO(image)).convert("RGB")
     proposals = _ocr_boxes(screenshot)
     proposals.extend((box, "") for box in _region_boxes(screenshot))
+    terms = _instruction_terms(instruction)
+    if terms:
+        proposals.sort(
+            key=lambda proposal: len(
+                terms.intersection(re.findall(r"[a-z0-9]+", proposal[1].casefold()))
+            ),
+            reverse=True,
+        )
     candidates: list[Candidate] = []
     for box, label in proposals:
         if any(_overlap(box, previous.box) > 0.85 for previous in candidates):

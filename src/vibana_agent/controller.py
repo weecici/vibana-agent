@@ -1,5 +1,6 @@
 """Bounded screenshot-driven workflow controller."""
 
+import logging
 from io import BytesIO
 from time import monotonic
 from typing import Literal, Protocol
@@ -19,6 +20,8 @@ from vibana_agent.schema import (
     Scenario,
     StepResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CandidateSelector(Protocol):
@@ -43,10 +46,20 @@ class RunObserver(Protocol):
         step_number: int,
         attempt_number: int,
         before: bytes,
-        action: bytes,
-        after: bytes,
+        action: bytes | None,
+        after: bytes | None,
     ) -> None:
-        """Store screenshot PNG bytes for the visual report."""
+        """Store every available screenshot, including failed attempts."""
+        ...
+
+
+class GoalVerifier(Protocol):
+    """Verify an instruction from fresh before and after screenshots."""
+
+    def verify(
+        self, before: bytes, after: bytes, instruction: str, settings: Settings
+    ) -> Evidence:
+        """Return visual evidence about the requested goal."""
         ...
 
 
@@ -80,6 +93,7 @@ def run_scenario(
     settings: Settings,
     observer: RunObserver,
     selector: CandidateSelector,
+    verifier: GoalVerifier | None = None,
 ) -> Report:
     """Act only on validated candidates and advance on fresh visual proof."""
     if len(scenario.steps) > settings.max_steps:
@@ -105,29 +119,61 @@ def run_scenario(
         performed = False
         for attempt_number in range(1, settings.max_attempts + 1):
             start = monotonic()
+            before: bytes | None = None
+            action_image: bytes | None = None
+            after: bytes | None = None
+            selected_candidate: Candidate | None = None
+            selected_action: Action | None = None
             try:
                 before = executor.capture()
-                candidates = perceive(before)
+                candidates = perceive(before, step.instruction)
                 candidate = selector.select(
                     before, step.instruction, candidates, settings
                 )
+                selected_candidate = candidate
                 if candidate not in candidates:
                     raise GroundingError("selected candidate is not current")
                 box = candidate.box
                 action = Action(
-                    kind="click", x=box.x + box.width // 2, y=box.y + box.height // 2
+                    kind="click",
+                    x=box.x + box.width // 2,
+                    y=box.y + box.height // 2,
+                    instruction=(
+                        step.instruction if scenario.target == "desktop" else None
+                    ),
+                    target_label=candidate.text,
                 )
+                selected_action = action
                 validate_action(
-                    action, executor.viewport(), step.instruction, candidate
+                    action,
+                    executor.viewport(),
+                    step.instruction,
+                    candidate,
+                    allow_unlisted=scenario.target == "desktop",
                 )
+                logger.info(
+                    "Planned click for step %d (%s): candidate %s (%s) at viewport "
+                    "pixel (%d, %d)",
+                    step_number,
+                    step.instruction,
+                    candidate.id,
+                    candidate.text or "unlabeled region",
+                    action.x,
+                    action.y,
+                )
+                logger.info("-" * 80)
                 action_image = _annotate_action(before, candidates, action)
                 executor.perform(action)
                 performed = True
                 after = executor.capture()
-                evidence = verify_text(after, step.expect.text_visible)
-                observer.record(
-                    step_number, attempt_number, before, action_image, after
-                )
+                if step.expect is not None:
+                    evidence = verify_text(after, step.expect.text_visible)
+                elif verifier is not None:
+                    evidence = verifier.verify(
+                        before, after, step.instruction, settings
+                    )
+                else:
+                    raise RuntimeError("visual verifier is required for this step")
                 attempts.append(
                     Attempt(
                         status="EXECUTED",
@@ -141,7 +187,21 @@ def run_scenario(
                 if evidence.matched:
                     passed = True
                     break
-            except (GroundingError, SafetyError) as error:
+            except SafetyError as error:
+                attempts.append(
+                    Attempt(
+                        status="ACTION_ERROR",
+                        candidate=selected_candidate,
+                        action=selected_action,
+                        strategy=(
+                            "candidate" if selected_candidate is not None else None
+                        ),
+                        error=str(error),
+                        latency_ms=round((monotonic() - start) * 1000),
+                    )
+                )
+                break
+            except GroundingError as error:
                 attempts.append(
                     Attempt(
                         status="ACTION_ERROR",
@@ -169,6 +229,11 @@ def run_scenario(
                     steps=results,
                     error=str(error),
                 )
+            finally:
+                if before is not None:
+                    observer.record(
+                        step_number, attempt_number, before, action_image, after
+                    )
         status: Literal["PASS", "FAIL", "ERROR"] = (
             "PASS" if passed else "FAIL" if performed else "ERROR"
         )

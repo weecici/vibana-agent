@@ -9,10 +9,18 @@ from pydantic import ValidationError
 
 from vibana_agent.config import Settings
 from vibana_agent.controller import run_scenario
-from vibana_agent.executor import MockBrowserExecutor
+from vibana_agent.executor import DesktopExecutor, MockBrowserExecutor
 from vibana_agent.grounding.ollama import OllamaSelector
 from vibana_agent.report import FrameCollector, write_report
-from vibana_agent.schema import Report, Scenario, StepResult, load_scenario
+from vibana_agent.schema import (
+    Box,
+    Report,
+    Scenario,
+    Step,
+    StepResult,
+    load_scenario,
+)
+from vibana_agent.verifier import OllamaGoalVerifier
 
 app = typer.Typer(help="Run the safe local Vibana HMI prototype.")
 logger = logging.getLogger(__name__)
@@ -31,9 +39,57 @@ def _infra_report(scenario: Scenario, message: str) -> Report:
     )
 
 
-def run_local(path: Path, seed: int, root: Path) -> tuple[Report, Path]:
+def parse_region(value: str) -> Box:
+    """Parse x,y,width,height as primary-screen pixel coordinates."""
+    try:
+        coordinates = [int(part.strip()) for part in value.split(",")]
+        if len(coordinates) != 4:
+            raise ValueError("region needs four integers")
+        return Box(
+            x=coordinates[0],
+            y=coordinates[1],
+            width=coordinates[2],
+            height=coordinates[3],
+        )
+    except (ValueError, ValidationError) as error:
+        raise ValueError(
+            "region must be x,y,width,height with positive size"
+        ) from error
+
+
+def run_desktop(scenario: Scenario, region: Box, root: Path) -> tuple[Report, Path]:
+    """Run a desktop workflow with automatic live pixel actions."""
+    observer = FrameCollector()
+
+    try:
+        executor = DesktopExecutor(region)
+        try:
+            report = run_scenario(
+                scenario,
+                executor,
+                Settings(),
+                observer,
+                OllamaSelector(),
+                verifier=OllamaGoalVerifier(),
+            )
+        finally:
+            executor.close()
+    except Exception as error:
+        logger.error("desktop run failed: %s", error)
+        report = _infra_report(scenario, str(error))
+    return report, write_report(report, observer.frames, root)
+
+
+def run_local(
+    path: Path, seed: int, root: Path, region: Box | None = None
+) -> tuple[Report, Path]:
     """Run a validated local scenario and always write a run report."""
     scenario = load_scenario(path)
+    if scenario.target == "desktop":
+        if region is None:
+            report = _infra_report(scenario, "desktop target requires --region")
+            return report, write_report(report, [], root)
+        return run_desktop(scenario, region, root)
     observer = FrameCollector()
     if scenario.target != "hmi_mock":
         report = _infra_report(
@@ -59,12 +115,47 @@ def run_local(path: Path, seed: int, root: Path) -> tuple[Report, Path]:
 def run(
     scenario: Annotated[Path, typer.Argument(exists=True, readable=True)],
     seed: Annotated[int, typer.Option(help="Deterministic mock HMI layout seed.")] = 0,
+    region: Annotated[
+        str | None,
+        typer.Option(help="Desktop primary-screen region: x,y,width,height."),
+    ] = None,
 ) -> None:
-    """Execute a YAML scenario against the bundled local mock HMI."""
+    """Execute a YAML scenario against its declared target."""
     try:
-        report, folder = run_local(scenario, seed, Path("runs"))
+        if region is None:
+            report, folder = run_local(scenario, seed, Path("runs"))
+        else:
+            report, folder = run_local(
+                scenario, seed, Path("runs"), region=parse_region(region)
+            )
     except (ValidationError, ValueError) as error:
         raise typer.BadParameter(f"invalid scenario: {error}") from error
+    typer.echo(f"Verdict: {report.status}")
+    typer.echo(f"Report: {folder / 'report.html'}")
+    if report.error:
+        typer.echo(f"Error: {report.error}")
+    if report.status != "PASS":
+        raise typer.Exit(code=2 if report.status == "INFRA_ERROR" else 1)
+
+
+@app.command()
+def desktop(
+    steps: Annotated[list[str], typer.Argument(help="Instructions in order.")],
+    region: Annotated[
+        str, typer.Option(help="Primary-screen region: x,y,width,height.")
+    ],
+) -> None:
+    """Run instruction-only steps on the Linux desktop automatically."""
+    try:
+        bounded = parse_region(region)
+        scenario = Scenario(
+            name="desktop_run",
+            target="desktop",
+            steps=[Step(instruction=step.strip()) for step in steps],
+        )
+        report, folder = run_desktop(scenario, bounded, Path("runs"))
+    except (ValidationError, ValueError) as error:
+        raise typer.BadParameter(f"invalid desktop input: {error}") from error
     typer.echo(f"Verdict: {report.status}")
     typer.echo(f"Report: {folder / 'report.html'}")
     if report.error:
@@ -76,3 +167,5 @@ def run(
 @app.callback()
 def main() -> None:
     """Use a named subcommand for local runs."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)

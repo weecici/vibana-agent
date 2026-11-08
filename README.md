@@ -18,7 +18,7 @@ Members:
 
 ```mermaid
 flowchart TD
-    START([Start]) --> TASK["Load Instructions and Success Criteria"]
+    START([Start]) --> TASK["Load Instructions and Optional Success Criteria"]
     TASK --> OBS["Capture Screenshot"]
 
     subgraph AGENT["Vibana Agent"]
@@ -49,9 +49,66 @@ flowchart TD
     REPORT --> END([End])
 ```
 
-## Run the first local prototype
+## Run on your desktop (Wayland or X11)
 
-The current prototype runs only against its bundled automotive HMI mock. It reads screenshots, proposes visible text and regions with RapidOCR and OpenCV, asks local Ollama to choose a numbered target, clicks through headless Chromium, and checks each result from a fresh screenshot. It saves annotated PNGs, validated JSON, and a browsable HTML report.
+The live agent captures an explicitly selected rectangle of the primary display,
+selects a visible target from that screenshot, asks before each click, and checks
+the result from a fresh screenshot. Instructions can be given directly, without
+a YAML file or authored expectations:
+
+```bash
+uv run vibana desktop --region 100,100,900,650 "Open Settings" "Open Display"
+```
+
+`--region` is `x,y,width,height` in primary-screen pixels. Choose a rectangle
+that contains only the application you want to control. Keep the terminal outside
+that rectangle while approving clicks, and leave the UI still during each model
+call. The agent refuses a click if the rectangle changes between capture and
+execution. Declining a click stops the run. Press Ctrl+C to stop the agent.
+
+On Linux, input uses an absolute virtual pointer through `python-evdev` and
+`/dev/uinput`, with a real left-button press after moving onto the target. It
+works independently of the X11 or Wayland display protocol.
+The user running Vibana needs write access to `/dev/uinput`; no root process is
+needed on systems that grant this through a group or ACL. On Wayland, install
+`grim` for screenshots; the compositor must support its screencopy protocol.
+Niri is supported and was exercised on this machine. On X11, Pillow captures
+the screen. Use one display at 100% scale for coordinate-calibrated clicks;
+multi-display mapping has not been verified. A live X11 run remains untested.
+
+For repeatable workflows, desktop YAML can contain instructions alone:
+
+```yaml
+name: my_desktop_run
+target: desktop
+steps:
+  - instruction: Open Settings
+  - instruction: Open Display
+```
+
+Run it with `uv run vibana run path/to/workflow.yaml --region 100,100,900,650`.
+An optional `expect: {text_visible: "..."}` makes a step use exact OCR text
+verification. Without it, the vision model compares before and after screenshots
+and returns `met`, `unmet`, or `uncertain` with visual evidence. Only `met`
+advances the workflow. Model judgments can be wrong, so inspect `report.html`
+before treating the result as validated. Reports contain screenshots of the
+selected desktop region; keep them private when they show confidential data.
+
+The action set remains click-only. The model cannot type, run shell commands,
+or choose its own coordinates outside detected candidates. Each step has a
+three-attempt budget. Live clicks run automatically inside the selected region
+after the target stability check. Use a test application and a narrow region
+for initial runs. The terminal streams the model's structured candidate
+selection and logs its brief visual rationale and planned click before each
+action.
+
+## Run the bundled mock benchmark
+
+The bundled automotive HMI remains a repeatable benchmark. It reads screenshots,
+proposes visible text and regions with RapidOCR and OpenCV, asks local Ollama to
+choose a numbered target, clicks through headless Chromium, and checks explicit
+expectations from fresh screenshots. It saves annotated PNGs, validated JSON, and
+a browsable HTML report.
 
 ### Setup
 
@@ -80,7 +137,7 @@ uv run vibana run scenarios/settings_brightness_70.yaml --seed 1
 
 The CLI prints the verdict and a path to `report.html`. Open that file in a browser to see the before, chosen target, and after images for each step. `report.json` has the structured evidence and attempt statuses. Artifacts are under `runs/settings_brightness_70/<timestamp>/` and are ignored by Git.
 
-`PASS` means each step had an action and its expected text was observed on a fresh screenshot. `FAIL` means a step exhausted its three attempts; `INFRA_ERROR` means a required service or browser failed. The CLI exits nonzero for either failure. The only executable target is the bundled mock HMI, and only the four instructions in this scenario are allowed to click. Unknown model answers, instructions, or coordinates do not cause a click. No desktop or arbitrary website control is enabled.
+`PASS` means each step had an action and its expected text was observed on a fresh screenshot. `FAIL` means a step exhausted its three attempts; `INFRA_ERROR` means a required service or browser failed. The CLI exits nonzero for either failure. The mock target permits only its four benchmark instructions. Unknown model answers or coordinates do not cause a click on either target.
 
 To change the local model, set `VIBANA_MODEL` before the run. A replacement model should be calibrated against the known mock workflow before trusting its selections. The vision call uses an 8192-token context, zero temperature, a fixed seed, and a 1280-pixel maximum image side.
 

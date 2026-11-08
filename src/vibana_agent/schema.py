@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
@@ -20,18 +20,25 @@ class Expectation(StrictModel):
 
 
 class Step(StrictModel):
-    """A requested UI instruction and its visual postcondition."""
+    """A requested UI instruction with an optional visual postcondition."""
 
     instruction: str = Field(min_length=1)
-    expect: Expectation
+    expect: Expectation | None = None
 
 
 class Scenario(StrictModel):
     """A bounded local workflow."""
 
     name: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
-    target: Literal["hmi_mock", "replay"]
+    target: Literal["hmi_mock", "replay", "desktop"]
     steps: list[Step] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_benchmark_expectations(self) -> "Scenario":
+        """Keep explicit pass criteria for mock and replay benchmarks."""
+        if self.target != "desktop" and any(step.expect is None for step in self.steps):
+            raise ValueError("mock and replay steps require expect")
+        return self
 
 
 class Box(StrictModel):
@@ -57,13 +64,16 @@ class Action(StrictModel):
     kind: Literal["click"]
     x: int
     y: int
+    instruction: str | None = None
+    target_label: str | None = None
 
 
 class Evidence(StrictModel):
-    """Text read from a post-action screenshot."""
+    """Post-action OCR or vision evidence from screenshot pixels."""
 
     matched: bool
     observed_text: str
+    source: Literal["ocr", "vision"] = "ocr"
 
 
 class Attempt(StrictModel):

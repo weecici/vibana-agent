@@ -12,6 +12,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "evdev>=2.0.0",
     "ollama>=0.6.3",
     "onnxruntime>=1.31.1",
     "opencv-python-headless>=5.0.0.93",

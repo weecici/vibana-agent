@@ -1,12 +1,17 @@
 """Closed action set and browser boundary checks."""
 
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from evdev import ecodes
+from PIL import Image, ImageGrab
 
 from vibana_agent import executor as executor_module
+from vibana_agent.desktop import GrimCapture, VirtualPointerBackend, X11Capture
 from vibana_agent.executor import (
+    DesktopExecutor,
     MockBrowserExecutor,
     ReplayExecutor,
     SafetyError,
@@ -94,3 +99,160 @@ def test_browser_close_continues_after_context_error(
         executor.close()
     browser.close.assert_called_once()
     playwright.stop.assert_called_once()
+
+
+class FakeDesktopGui:
+    """In-memory desktop API that records real pixel click coordinates."""
+
+    def __init__(self) -> None:
+        self.color = "navy"
+        self.clicks: list[tuple[int, int]] = []
+        self.closed = False
+
+    def screenshot(self, region: tuple[int, int, int, int]) -> Image.Image:
+        return Image.new("RGB", (region[2], region[3]), self.color)
+
+    def click(self, x: int, y: int) -> None:
+        self.clicks.append((x, y))
+
+    def size(self) -> tuple[int, int]:
+        return 1280, 720
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_desktop_accepts_wayland_backend() -> None:
+    gui = FakeDesktopGui()
+    executor = DesktopExecutor(
+        Box(x=100, y=100, width=300, height=200),
+        gui=gui,
+        session_type="wayland",
+    )
+    executor.capture()
+    executor.perform(Action(kind="click", x=25, y=35))
+    assert gui.clicks == [(125, 135)]
+
+
+def test_invalid_region_releases_virtual_input() -> None:
+    gui = FakeDesktopGui()
+    with pytest.raises(SafetyError, match="outside the primary screen"):
+        DesktopExecutor(
+            Box(x=1200, y=100, width=300, height=200),
+            gui=gui,
+            session_type="wayland",
+        )
+    assert gui.closed
+
+
+def test_desktop_click_stays_inside_region_without_approval() -> None:
+    gui = FakeDesktopGui()
+    executor = DesktopExecutor(
+        Box(x=100, y=100, width=300, height=200),
+        gui=gui,
+        session_type="x11",
+    )
+    executor.capture()
+    executor.perform(Action(kind="click", x=25, y=35))
+    assert gui.clicks == [(125, 135)]
+    with pytest.raises(SafetyError):
+        executor.perform(Action(kind="click", x=300, y=35))
+    assert gui.clicks == [(125, 135)]
+
+
+def test_desktop_rejects_changed_screen_before_click() -> None:
+    gui = FakeDesktopGui()
+    executor = DesktopExecutor(
+        Box(x=100, y=100, width=300, height=200),
+        gui=gui,
+        session_type="x11",
+    )
+    executor.capture()
+    gui.color = "red"
+    with pytest.raises(SafetyError, match="changed"):
+        executor.perform(Action(kind="click", x=25, y=35))
+    assert gui.clicks == []
+
+
+def test_grim_capture_uses_region_pixels() -> None:
+    calls: list[list[str]] = []
+
+    def runner(command: list[str]) -> bytes:
+        calls.append(command)
+        output = BytesIO()
+        Image.new("RGB", (300, 200), "navy").save(output, format="PNG")
+        return output.getvalue()
+
+    capture = GrimCapture(runner=runner)
+    assert capture.screenshot((100, 50, 300, 200)).size == (300, 200)
+    assert calls == [["grim", "-g", "100,50 300x200", "-"]]
+
+
+def test_x11_capture_uses_display_and_region_pixels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[int, int, int, int] | None, str | None]] = []
+
+    def grab(
+        bbox: tuple[int, int, int, int] | None = None,
+        xdisplay: str | None = None,
+    ) -> Image.Image:
+        calls.append((bbox, xdisplay))
+        return Image.new("RGB", (300, 200), "navy")
+
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setattr(ImageGrab, "grab", grab)
+    capture = X11Capture()
+    assert capture.screenshot((100, 50, 300, 200)).size == (300, 200)
+    assert calls == [((100, 50, 400, 250), ":99")]
+
+
+class FakePointerDevice:
+    """Record kernel pointer events without touching the host desktop."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[int, int, int] | str] = []
+
+    def write(self, event_type: int, code: int, value: int) -> None:
+        self.events.append((event_type, code, value))
+
+    def syn(self) -> None:
+        self.events.append("syn")
+
+    def close(self) -> None:
+        self.events.append("close")
+
+
+def test_virtual_pointer_moves_and_clicks_at_exact_pixels() -> None:
+    gui = FakeDesktopGui()
+    device = FakePointerDevice()
+    backend = VirtualPointerBackend(gui, device=device, press_delay_s=0)
+    backend.click(125, 135)
+    assert device.events == [
+        (ecodes.EV_ABS, ecodes.ABS_X, 131),
+        (ecodes.EV_ABS, ecodes.ABS_Y, 141),
+        "syn",
+        (ecodes.EV_ABS, ecodes.ABS_X, 125),
+        (ecodes.EV_ABS, ecodes.ABS_Y, 135),
+        "syn",
+        (ecodes.EV_KEY, ecodes.BTN_LEFT, 1),
+        "syn",
+        (ecodes.EV_KEY, ecodes.BTN_LEFT, 0),
+        "syn",
+    ]
+    backend.close()
+    assert device.events[-1] == "close"
+
+
+def test_virtual_pointer_releases_after_flush_error() -> None:
+    class FailingSynDevice(FakePointerDevice):
+        def syn(self) -> None:
+            self.events.append("syn")
+            if self.events.count("syn") == 3:
+                raise OSError("input flush failed")
+
+    device = FailingSynDevice()
+    backend = VirtualPointerBackend(FakeDesktopGui(), device=device, press_delay_s=0)
+    with pytest.raises(OSError, match="input flush failed"):
+        backend.click(125, 135)
+    assert (ecodes.EV_KEY, ecodes.BTN_LEFT, 0) in device.events
