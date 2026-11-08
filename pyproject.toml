@@ -12,10 +12,15 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "ollama>=0.6.3",
+    "onnxruntime>=1.31.1",
+    "opencv-python-headless>=5.0.0.93",
+    "pillow>=13.0.0",
     "playwright>=1.64.1",
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
+    "rapidocr>=3.10.0",
     "typer>=0.28.0",
 ]
 
@@ -27,6 +32,7 @@ requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.mypy]
+mypy_path = "stubs"
 python_version = "3.13"
 strict = true
 disallow_untyped_defs = true
