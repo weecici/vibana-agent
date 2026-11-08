@@ -29,6 +29,11 @@ def test_invalid_selection_is_rejected() -> None:
         parse_selection("not json", candidates)
     with pytest.raises(GroundingError):
         parse_selection('{"candidate_id": 99, "reason": "guess"}', candidates)
+    for value in ("true", '"1"', "1.0"):
+        with pytest.raises(GroundingError):
+            parse_selection(
+                f'{{"candidate_id": {value}, "reason": "guess"}}', candidates
+            )
 
 
 def test_out_of_range_normalized_coordinate_is_rejected() -> None:

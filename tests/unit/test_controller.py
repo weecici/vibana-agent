@@ -1,12 +1,15 @@
 """Controller verdicts from post-action screenshots."""
 
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from PIL import Image
 
 from vibana_agent import controller
 from vibana_agent.config import Settings
+from vibana_agent.grounding.ollama import parse_selection
+from vibana_agent.report import write_report
 from vibana_agent.schema import Action, Box, Candidate, Evidence, Scenario
 
 CANDIDATE = Candidate(id=1, box=Box(x=10, y=20, width=100, height=50))
@@ -161,3 +164,63 @@ def test_all_steps_pass_only_after_action(monkeypatch: pytest.MonkeyPatch) -> No
     assert report.steps[0].status == "PASS"
     assert executor.clicks == 1
     assert len(observer.records) == 1
+
+
+def test_coercible_model_choice_cannot_click(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Malformed model JSON cannot coerce a visible ID into a click."""
+    setup_pixels(monkeypatch)
+
+    class CoercingSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            return parse_selection(
+                '{"candidate_id": true, "reason": "guess"}', candidates
+            )
+
+    executor = FakeExecutor([frame("red")] * 6)
+    report = controller.run_scenario(
+        one_step(), executor, Settings(), FakeObserver(), CoercingSelector()
+    )
+    assert executor.clicks == 0
+    assert report.status == "FAIL"
+    assert [attempt.status for attempt in report.steps[0].attempts] == [
+        "ACTION_ERROR"
+    ] * 3
+
+
+def test_step_budget_keeps_visual_report_layout(tmp_path: Path) -> None:
+    """A rejected run still reports every unexecuted step and image slot."""
+    scenario = Scenario.model_validate(
+        {
+            "name": "test",
+            "target": "hmi_mock",
+            "steps": [
+                {"instruction": "Open Settings", "expect": {"text_visible": "Display"}},
+                {
+                    "instruction": "Open Display",
+                    "expect": {"text_visible": "Brightness"},
+                },
+            ],
+        }
+    )
+    executor = FakeExecutor([])
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(max_steps=1),
+        FakeObserver(),
+        FakeSelector(CANDIDATE),
+    )
+    assert report.status == "FAIL"
+    assert report.error == "scenario exceeds max_steps"
+    assert [step.status for step in report.steps] == ["SKIPPED", "SKIPPED"]
+    assert executor.clicks == 0
+    folder = write_report(report, [], tmp_path)
+    assert (folder / "01_after.png").is_file()
+    assert (folder / "02_after.png").is_file()
+    assert "Open Display" in (folder / "report.html").read_text()

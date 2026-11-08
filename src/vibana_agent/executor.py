@@ -1,5 +1,7 @@
 """Safe local screenshot and click backends."""
 
+import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import unquote, urlparse
@@ -8,13 +10,14 @@ from PIL import Image
 from playwright.sync_api import (
     Browser,
     BrowserContext,
-    Page,
     Playwright,
     Route,
     sync_playwright,
 )
 
 from vibana_agent.schema import Action, Candidate
+
+logger = logging.getLogger(__name__)
 
 
 class SafetyError(ValueError):
@@ -73,15 +76,52 @@ class MockBrowserExecutor:
         if path.resolve() != expected.resolve():
             raise SafetyError("only the bundled mock HMI may receive clicks")
         self._root = expected.parent.resolve()
-        self._playwright: Playwright = sync_playwright().start()
-        self._browser: Browser = self._playwright.chromium.launch(headless=True)
-        self._context: BrowserContext = self._browser.new_context(
-            viewport={"width": 1280, "height": 720}, device_scale_factor=1
-        )
-        self._context.set_default_timeout(30_000)
-        self._context.route("**/*", self._route)
-        self._page: Page = self._context.new_page()
-        self._page.goto(f"{expected.as_uri()}?seed={seed}", timeout=30_000)
+        playwright: Playwright | None = None
+        browser: Browser | None = None
+        context: BrowserContext | None = None
+        try:
+            playwright = sync_playwright().start()
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}, device_scale_factor=1
+            )
+            context.set_default_timeout(30_000)
+            context.route("**/*", self._route)
+            page = context.new_page()
+            page.goto(f"{expected.as_uri()}?seed={seed}", timeout=30_000)
+        except Exception:
+            try:
+                self._release(context, browser, playwright)
+            except Exception:
+                logger.exception("browser cleanup failed after startup error")
+            raise
+        self._playwright = playwright
+        self._browser = browser
+        self._context = context
+        self._page = page
+
+    @staticmethod
+    def _release(
+        context: BrowserContext | None,
+        browser: Browser | None,
+        playwright: Playwright | None,
+    ) -> None:
+        releases: list[Callable[[], None]] = []
+        if context is not None:
+            releases.append(context.close)
+        if browser is not None:
+            releases.append(browser.close)
+        if playwright is not None:
+            releases.append(playwright.stop)
+        errors: list[Exception] = []
+        for release in releases:
+            try:
+                release()
+            except Exception as error:
+                errors.append(error)
+                logger.exception("browser resource cleanup failed")
+        if errors:
+            raise errors[0]
 
     def _route(self, route: Route) -> None:
         parsed = urlparse(route.request.url)
@@ -111,9 +151,7 @@ class MockBrowserExecutor:
 
     def close(self) -> None:
         """Release the browser and Playwright driver."""
-        self._context.close()
-        self._browser.close()
-        self._playwright.stop()
+        self._release(self._context, self._browser, self._playwright)
 
 
 class ReplayExecutor:

@@ -86,7 +86,10 @@ def run_scenario(
         return Report(
             scenario=scenario.name,
             status="FAIL",
-            steps=[],
+            steps=[
+                StepResult(instruction=step.instruction, status="SKIPPED", attempts=[])
+                for step in scenario.steps
+            ],
             error="scenario exceeds max_steps",
         )
     results: list[StepResult] = []

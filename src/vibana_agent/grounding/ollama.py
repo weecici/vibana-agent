@@ -1,7 +1,7 @@
 """Structured Ollama candidate selection."""
 
 from ollama import Client
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from vibana_agent.config import Settings
 from vibana_agent.perception import draw_candidates, resize_for_model
@@ -14,6 +14,8 @@ class GroundingError(ValueError):
 
 class Selection(BaseModel):
     """Validated model choice of a numbered on-screen candidate."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
 
     candidate_id: int | None
     reason: str
