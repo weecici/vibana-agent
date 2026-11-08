@@ -67,6 +67,15 @@ class AlwaysMetVerifier:
         return Evidence(matched=True, observed_text="changed", source="vision")
 
 
+class UnmetVerifier:
+    """Leave a keyboard action without positive visual proof."""
+
+    def verify(
+        self, before: bytes, after: bytes, instruction: str, settings: Settings
+    ) -> Evidence:
+        return Evidence(matched=False, observed_text="uncertain", source="vision")
+
+
 @pytest.mark.parametrize(
     ("spec", "kind"),
     [
@@ -109,6 +118,44 @@ def test_desktop_explicit_actions_skip_candidate_selection(
     assert report.status == "PASS"
     assert executor.actions[0].kind == kind
     assert observer.actions[0] is not None
+
+
+@pytest.mark.parametrize("kind", ["type_text", "key_press"])
+def test_unverified_keyboard_action_is_not_repeated(kind: str) -> None:
+    spec = (
+        {"kind": "type_text", "text": "hello"}
+        if kind == "type_text"
+        else {"kind": "key_press", "key": "Enter"}
+    )
+    scenario = Scenario.model_validate(
+        {
+            "name": "uncertain_keyboard",
+            "target": "desktop",
+            "steps": [{"instruction": "input", "action": spec}],
+        }
+    )
+
+    class UnexpectedSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("keyboard input must not select a candidate")
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(max_attempts=3),
+        RecordingObserver(),
+        UnexpectedSelector(),
+        verifier=UnmetVerifier(),
+    )
+    assert report.status == "FAIL"
+    assert len(executor.actions) == 1
 
 
 @pytest.mark.parametrize(

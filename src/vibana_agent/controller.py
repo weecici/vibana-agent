@@ -265,6 +265,8 @@ def run_scenario(
                 if evidence.matched:
                     passed = True
                     break
+                if action.kind in {"type_text", "key_press"}:
+                    break
             except SafetyError as error:
                 attempts.append(
                     Attempt(

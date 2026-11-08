@@ -139,6 +139,8 @@ Plain desktop instructions also recognize `scroll down`, `scroll down 3 ticks`,
 when the instruction has different wording or needs scroll coordinates.
 Use a click step to focus an input before typing. Each action is recorded with
 before and after screenshots and must pass the step's visual verification.
+Typing and key presses run once per step; an uncertain visual result fails the
+step without sending the same input again.
 The model cannot run shell commands or choose coordinates outside detected
 click candidates. Each step has a three-attempt budget by default. Live pointer
 actions run inside the selected region after a target stability check. Use a
