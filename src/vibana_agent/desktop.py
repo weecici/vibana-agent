@@ -117,6 +117,7 @@ class VirtualPointerBackend:
         capture: ScreenCapture,
         device: PointerDevice | None = None,
         press_delay_s: float = 0.08,
+        keyboard_device: PointerDevice | None = None,
     ) -> None:
         self._capture = capture
         self._press_delay_s = press_delay_s
@@ -126,52 +127,7 @@ class VirtualPointerBackend:
         self._size = (width, height)
         if device is None:
             capabilities: dict[int, Sequence[int | tuple[int, AbsInfo]]] = {
-                ecodes.EV_KEY: [
-                    ecodes.BTN_LEFT,
-                    *[
-                        int(getattr(ecodes, f"KEY_{letter}"))
-                        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                    ],
-                    *[int(getattr(ecodes, f"KEY_{digit}")) for digit in "0123456789"],
-                    *[
-                        int(getattr(ecodes, f"KEY_{name}"))
-                        for name in (
-                            "SPACE",
-                            "ENTER",
-                            "TAB",
-                            "ESC",
-                            "BACKSPACE",
-                            "DELETE",
-                            "UP",
-                            "DOWN",
-                            "LEFT",
-                            "RIGHT",
-                            "HOME",
-                            "END",
-                            "PAGEUP",
-                            "PAGEDOWN",
-                            "LEFTCTRL",
-                            "LEFTALT",
-                            "LEFTSHIFT",
-                            "LEFTMETA",
-                            "MINUS",
-                            "EQUAL",
-                            "LEFTBRACE",
-                            "RIGHTBRACE",
-                            "BACKSLASH",
-                            "SEMICOLON",
-                            "APOSTROPHE",
-                            "GRAVE",
-                            "COMMA",
-                            "DOT",
-                            "SLASH",
-                        )
-                    ],
-                    *[
-                        int(getattr(ecodes, f"KEY_F{number}"))
-                        for number in range(1, 13)
-                    ],
-                ],
+                ecodes.EV_KEY: [ecodes.BTN_LEFT],
                 ecodes.EV_ABS: [
                     (ecodes.ABS_X, AbsInfo(0, 0, width - 1, 0, 0, 1)),
                     (ecodes.ABS_Y, AbsInfo(0, 0, height - 1, 0, 0, 1)),
@@ -191,6 +147,39 @@ class VirtualPointerBackend:
                 ) from error
             sleep(1)
         self._device = device
+        self._keyboard_device = keyboard_device
+
+    def _keyboard(self) -> PointerDevice:
+        if self._keyboard_device is None:
+            names = (
+                "SPACE", "ENTER", "TAB", "ESC", "BACKSPACE", "DELETE",
+                "UP", "DOWN", "LEFT", "RIGHT", "HOME", "END",
+                "PAGEUP", "PAGEDOWN", "LEFTCTRL", "LEFTALT",
+                "LEFTSHIFT", "LEFTMETA", "MINUS", "EQUAL",
+                "LEFTBRACE", "RIGHTBRACE", "BACKSLASH", "SEMICOLON",
+                "APOSTROPHE", "GRAVE", "COMMA", "DOT", "SLASH",
+            )
+            keys = [
+                *[int(getattr(ecodes, f"KEY_{letter}")) for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+                *[int(getattr(ecodes, f"KEY_{digit}")) for digit in "0123456789"],
+                *[int(getattr(ecodes, f"KEY_{name}")) for name in names],
+                *[int(getattr(ecodes, f"KEY_F{number}")) for number in range(1, 13)],
+            ]
+            capabilities: dict[int, Sequence[int | tuple[int, AbsInfo]]] = {
+                ecodes.EV_KEY: keys
+            }
+            try:
+                self._keyboard_device = UInput(
+                    capabilities,
+                    name="Vibana virtual keyboard",
+                    bustype=ecodes.BUS_USB,
+                )
+            except OSError as error:
+                raise RuntimeError(
+                    "cannot open /dev/uinput for virtual keyboard input"
+                ) from error
+            sleep(1)
+        return self._keyboard_device
 
     def screenshot(self, region: tuple[int, int, int, int]) -> Image.Image:
         """Capture a desktop rectangle in screen pixels."""
@@ -239,20 +228,21 @@ class VirtualPointerBackend:
         self._device.syn()
 
     def _tap(self, code: int, shift: bool = False) -> None:
+        device = self._keyboard()
         if shift:
-            self._device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
-            self._device.syn()
+            device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
+            device.syn()
         try:
-            self._device.write(ecodes.EV_KEY, code, 1)
+            device.write(ecodes.EV_KEY, code, 1)
             try:
-                self._device.syn()
+                device.syn()
             finally:
-                self._device.write(ecodes.EV_KEY, code, 0)
-                self._device.syn()
+                device.write(ecodes.EV_KEY, code, 0)
+                device.syn()
         finally:
             if shift:
-                self._device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
-                self._device.syn()
+                device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
+                device.syn()
 
     def type_text(self, value: str) -> None:
         """Type printable US-layout ASCII plus newline and tab."""
@@ -349,19 +339,22 @@ class VirtualPointerBackend:
             name = final
         else:
             raise ValueError("unsupported key")
+        device = self._keyboard()
         pressed: list[int] = []
         try:
             for part in prefix:
                 code = modifiers[part]
-                self._device.write(ecodes.EV_KEY, code, 1)
+                device.write(ecodes.EV_KEY, code, 1)
                 pressed.append(code)
-                self._device.syn()
+                device.syn()
             self._tap(int(getattr(ecodes, f"KEY_{name}")))
         finally:
             for code in reversed(pressed):
-                self._device.write(ecodes.EV_KEY, code, 0)
-                self._device.syn()
+                device.write(ecodes.EV_KEY, code, 0)
+                device.syn()
 
     def close(self) -> None:
         """Close the virtual pointer device."""
+        if self._keyboard_device is not None and self._keyboard_device is not self._device:
+            self._keyboard_device.close()
         self._device.close()

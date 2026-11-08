@@ -3,11 +3,13 @@
 from io import BytesIO
 
 import pytest
-from evdev import ecodes
+from collections.abc import Sequence
+
+from evdev import AbsInfo, ecodes
 from PIL import Image
 from pydantic import ValidationError
 
-from vibana_agent import controller
+from vibana_agent import controller, desktop
 from vibana_agent.config import Settings
 from vibana_agent.desktop import VirtualPointerBackend
 from vibana_agent.schema import Action, Candidate, Evidence, Scenario
@@ -259,7 +261,9 @@ def test_virtual_input_scroll_and_keyboard_events() -> None:
             pass
 
     device = Device()
-    backend = VirtualPointerBackend(Capture(), device=device, press_delay_s=0)
+    backend = VirtualPointerBackend(
+        Capture(), device=device, press_delay_s=0, keyboard_device=device
+    )
     backend.scroll(100, 120, "down", 3)
     backend.type_text("Hi!")
     backend.key_press("Ctrl+A")
@@ -269,3 +273,47 @@ def test_virtual_input_scroll_and_keyboard_events() -> None:
     assert (ecodes.EV_KEY, ecodes.KEY_A, 1) in device.events
     assert (ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1) in device.events
     assert device.events[-1] == (ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
+
+
+def test_pointer_and_keyboard_use_separate_device_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyboard capability must not change the working pointer profile."""
+    class Capture:
+        def screenshot(self, region: tuple[int, int, int, int]) -> Image.Image:
+            return Image.new("RGB", (region[2], region[3]))
+
+        def size(self) -> tuple[int, int]:
+            return 320, 200
+
+    class Device:
+        def write(self, event_type: int, code: int, value: int) -> None:
+            pass
+
+        def syn(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    capabilities_seen: list[dict[int, Sequence[int | tuple[int, AbsInfo]]]] = []
+
+    def fake_uinput(
+        capabilities: dict[int, Sequence[int | tuple[int, AbsInfo]]],
+        name: str,
+        bustype: int,
+        input_props: list[int] | None = None,
+    ) -> Device:
+        capabilities_seen.append(capabilities)
+        return Device()
+
+    monkeypatch.setattr(desktop, "UInput", fake_uinput)
+    monkeypatch.setattr(desktop, "sleep", lambda seconds: None)
+    backend = VirtualPointerBackend(Capture())
+    try:
+        assert capabilities_seen[0][ecodes.EV_KEY] == [ecodes.BTN_LEFT]
+        backend.type_text("a")
+        assert len(capabilities_seen) == 2
+        assert ecodes.EV_ABS not in capabilities_seen[1]
+    finally:
+        backend.close()
