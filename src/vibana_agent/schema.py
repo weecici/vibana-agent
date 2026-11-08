@@ -6,6 +6,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from vibana_agent.config import Settings
+
 
 class StrictModel(BaseModel):
     """Base model that rejects unknown boundary fields."""
@@ -32,6 +34,8 @@ class Scenario(StrictModel):
     name: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
     target: Literal["hmi_mock", "replay", "desktop"]
     steps: list[Step] = Field(min_length=1)
+    region: "Box | None" = None
+    settings: Settings | None = None
 
     @model_validator(mode="after")
     def require_benchmark_expectations(self) -> "Scenario":

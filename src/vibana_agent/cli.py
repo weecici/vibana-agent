@@ -67,7 +67,7 @@ def run_desktop(scenario: Scenario, region: Box, root: Path) -> tuple[Report, Pa
             report = run_scenario(
                 scenario,
                 executor,
-                Settings(),
+                scenario.settings or Settings(),
                 observer,
                 OllamaSelector(),
                 verifier=OllamaGoalVerifier(),
@@ -86,10 +86,10 @@ def run_local(
     """Run a validated local scenario and always write a run report."""
     scenario = load_scenario(path)
     if scenario.target == "desktop":
-        if region is None:
+        if region is None and scenario.region is None:
             report = _infra_report(scenario, "desktop target requires --region")
             return report, write_report(report, [], root)
-        return run_desktop(scenario, region, root)
+        return run_desktop(scenario, region or scenario.region, root)
     observer = FrameCollector()
     if scenario.target != "hmi_mock":
         report = _infra_report(
@@ -101,7 +101,11 @@ def run_local(
         executor = MockBrowserExecutor(mock_path, seed)
         try:
             report = run_scenario(
-                scenario, executor, Settings(), observer, OllamaSelector()
+                scenario,
+                executor,
+                scenario.settings or Settings(),
+                observer,
+                OllamaSelector(),
             )
         finally:
             executor.close()
@@ -140,20 +144,39 @@ def run(
 
 @app.command()
 def desktop(
-    steps: Annotated[list[str], typer.Argument(help="Instructions in order.")],
+    steps: Annotated[
+        list[str] | None, typer.Argument(help="Instructions in order.")
+    ] = None,
     region: Annotated[
-        str, typer.Option(help="Primary-screen region: x,y,width,height.")
-    ],
+        str | None, typer.Option(help="Primary-screen region: x,y,width,height.")
+    ] = None,
+    file: Annotated[
+        Path | None,
+        typer.Option(exists=True, readable=True, help="Saved desktop YAML workflow."),
+    ] = None,
 ) -> None:
-    """Run instruction-only steps on the Linux desktop automatically."""
+    """Run desktop instructions or a saved YAML workflow."""
     try:
-        bounded = parse_region(region)
-        scenario = Scenario(
-            name="desktop_run",
-            target="desktop",
-            steps=[Step(instruction=step.strip()) for step in steps],
-        )
-        report, folder = run_desktop(scenario, bounded, Path("runs"))
+        if file is not None:
+            if steps:
+                raise ValueError("use --file or inline steps, not both")
+            scenario = load_scenario(file)
+            if scenario.target != "desktop":
+                raise ValueError("file must declare a desktop target")
+            bounded = parse_region(region) if region is not None else scenario.region
+            if bounded is None:
+                raise ValueError("desktop file requires region or --region")
+            report, folder = run_desktop(scenario, bounded, Path("runs"))
+        else:
+            if region is None or not steps:
+                raise ValueError("inline desktop steps require --region")
+            bounded = parse_region(region)
+            scenario = Scenario(
+                name="desktop_run",
+                target="desktop",
+                steps=[Step(instruction=step.strip()) for step in steps],
+            )
+            report, folder = run_desktop(scenario, bounded, Path("runs"))
     except (ValidationError, ValueError) as error:
         raise typer.BadParameter(f"invalid desktop input: {error}") from error
     typer.echo(f"Verdict: {report.status}")

@@ -87,6 +87,25 @@ steps:
 ```
 
 Run it with `uv run vibana run path/to/workflow.yaml --region 100,100,900,650`.
+To save the region and run settings too, include them in the same file:
+
+```yaml
+name: my_desktop_run
+target: desktop
+region: {x: 100, y: 100, width: 900, height: 650}
+settings:
+  model: qwen3-vl:4b-instruct
+  max_candidates: 80
+  max_attempts: 3
+steps:
+  - instruction: Open Settings
+  - instruction: Open Display
+```
+
+Run the saved file with `uv run vibana desktop --file path/to/workflow.yaml`.
+`uv run vibana run path/to/workflow.yaml` also accepts the saved region.
+An explicit `--region` overrides the region in the file. Settings not specified
+in the file use the usual `VIBANA_` environment values or defaults.
 An optional `expect: {text_visible: "..."}` makes a step use exact OCR text
 verification. Without it, the vision model compares before and after screenshots
 and returns `met`, `unmet`, or `uncertain` with visual evidence. Only `met`
