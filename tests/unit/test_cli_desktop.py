@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from vibana_agent import cli
 from vibana_agent.config import Settings
-from vibana_agent.schema import Box, Report, Scenario
+from vibana_agent.schema import Box, Report, Scenario, Step
 
 
 def test_desktop_command_needs_no_yaml(
@@ -89,7 +89,7 @@ def test_desktop_run_uses_file_settings(
         name="configured",
         target="desktop",
         settings=Settings(max_candidates=72),
-        steps=[{"instruction": "Open Settings"}],
+        steps=[Step(instruction="Open Settings")],
     )
     observed: list[Settings] = []
 

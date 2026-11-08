@@ -13,7 +13,9 @@ from vibana_agent.schema import Box
 
 def test_candidate_limit_can_exceed_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """A configured budget preserves candidates beyond the old 40 item cap."""
-    boxes = [(Box(x=index * 10, y=0, width=5, height=5), str(index)) for index in range(55)]
+    boxes = [
+        (Box(x=index * 10, y=0, width=5, height=5), str(index)) for index in range(55)
+    ]
     monkeypatch.setattr(perception, "_ocr_boxes", lambda image: boxes)
     monkeypatch.setattr(perception, "_region_boxes", lambda image: [])
     buffer = BytesIO()

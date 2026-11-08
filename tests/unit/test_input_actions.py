@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from vibana_agent import controller
 from vibana_agent.config import Settings
 from vibana_agent.desktop import VirtualPointerBackend
-from vibana_agent.schema import Action, Box, Evidence, Scenario
+from vibana_agent.schema import Action, Candidate, Evidence, Scenario
 
 
 def frame(color: str) -> bytes:
@@ -87,7 +87,13 @@ def test_desktop_explicit_actions_skip_candidate_selection(
     )
 
     class UnexpectedSelector:
-        def select(self, *args: object) -> None:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
             raise AssertionError("explicit input must not select a click target")
 
     executor = RecordingExecutor()
@@ -125,7 +131,13 @@ def test_plain_desktop_input_instructions_route_without_click_selection(
     )
 
     class UnexpectedSelector:
-        def select(self, *args: object) -> None:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
             raise AssertionError("input instruction must not select a click target")
 
     executor = RecordingExecutor()

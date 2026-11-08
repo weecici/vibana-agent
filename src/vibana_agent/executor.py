@@ -107,7 +107,10 @@ class DesktopExecutor:
             )
             before_target = self._before.crop(target_bounds)
             current_target = current.crop(target_bounds)
-            if ImageChops.difference(before_target, current_target).getbbox() is not None:
+            if (
+                ImageChops.difference(before_target, current_target).getbbox()
+                is not None
+            ):
                 raise SafetyError("desktop target changed before the input")
             x = self._region.x + action.x
             y = self._region.y + action.y

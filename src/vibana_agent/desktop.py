@@ -128,17 +128,49 @@ class VirtualPointerBackend:
             capabilities: dict[int, Sequence[int | tuple[int, AbsInfo]]] = {
                 ecodes.EV_KEY: [
                     ecodes.BTN_LEFT,
-                    *[int(getattr(ecodes, f"KEY_{letter}")) for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+                    *[
+                        int(getattr(ecodes, f"KEY_{letter}"))
+                        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    ],
                     *[int(getattr(ecodes, f"KEY_{digit}")) for digit in "0123456789"],
-                    *[int(getattr(ecodes, f"KEY_{name}")) for name in (
-                        "SPACE", "ENTER", "TAB", "ESC", "BACKSPACE", "DELETE",
-                        "UP", "DOWN", "LEFT", "RIGHT", "HOME", "END",
-                        "PAGEUP", "PAGEDOWN", "LEFTCTRL", "LEFTALT",
-                        "LEFTSHIFT", "LEFTMETA", "MINUS", "EQUAL",
-                        "LEFTBRACE", "RIGHTBRACE", "BACKSLASH", "SEMICOLON",
-                        "APOSTROPHE", "GRAVE", "COMMA", "DOT", "SLASH",
-                    )],
-                    *[int(getattr(ecodes, f"KEY_F{number}")) for number in range(1, 13)],
+                    *[
+                        int(getattr(ecodes, f"KEY_{name}"))
+                        for name in (
+                            "SPACE",
+                            "ENTER",
+                            "TAB",
+                            "ESC",
+                            "BACKSPACE",
+                            "DELETE",
+                            "UP",
+                            "DOWN",
+                            "LEFT",
+                            "RIGHT",
+                            "HOME",
+                            "END",
+                            "PAGEUP",
+                            "PAGEDOWN",
+                            "LEFTCTRL",
+                            "LEFTALT",
+                            "LEFTSHIFT",
+                            "LEFTMETA",
+                            "MINUS",
+                            "EQUAL",
+                            "LEFTBRACE",
+                            "RIGHTBRACE",
+                            "BACKSLASH",
+                            "SEMICOLON",
+                            "APOSTROPHE",
+                            "GRAVE",
+                            "COMMA",
+                            "DOT",
+                            "SLASH",
+                        )
+                    ],
+                    *[
+                        int(getattr(ecodes, f"KEY_F{number}"))
+                        for number in range(1, 13)
+                    ],
                 ],
                 ecodes.EV_ABS: [
                     (ecodes.ABS_X, AbsInfo(0, 0, width - 1, 0, 0, 1)),
@@ -225,23 +257,40 @@ class VirtualPointerBackend:
     def type_text(self, value: str) -> None:
         """Type printable US-layout ASCII plus newline and tab."""
         punctuation = {
-            "-": ("MINUS", False), "_": ("MINUS", True),
-            "=": ("EQUAL", False), "+": ("EQUAL", True),
-            "[": ("LEFTBRACE", False), "{": ("LEFTBRACE", True),
-            "]": ("RIGHTBRACE", False), "}": ("RIGHTBRACE", True),
-            "\\": ("BACKSLASH", False), "|": ("BACKSLASH", True),
-            ";": ("SEMICOLON", False), ":": ("SEMICOLON", True),
-            "'": ("APOSTROPHE", False), '"': ("APOSTROPHE", True),
-            "`": ("GRAVE", False), "~": ("GRAVE", True),
-            ",": ("COMMA", False), "<": ("COMMA", True),
-            ".": ("DOT", False), ">": ("DOT", True),
-            "/": ("SLASH", False), "?": ("SLASH", True),
-            "!": ("1", True), "@": ("2", True),
-            "#": ("3", True), "$": ("4", True),
-            "%": ("5", True), "^": ("6", True),
-            "&": ("7", True), "*": ("8", True),
-            "(": ("9", True), ")": ("0", True),
-            " ": ("SPACE", False), "\n": ("ENTER", False),
+            "-": ("MINUS", False),
+            "_": ("MINUS", True),
+            "=": ("EQUAL", False),
+            "+": ("EQUAL", True),
+            "[": ("LEFTBRACE", False),
+            "{": ("LEFTBRACE", True),
+            "]": ("RIGHTBRACE", False),
+            "}": ("RIGHTBRACE", True),
+            "\\": ("BACKSLASH", False),
+            "|": ("BACKSLASH", True),
+            ";": ("SEMICOLON", False),
+            ":": ("SEMICOLON", True),
+            "'": ("APOSTROPHE", False),
+            '"': ("APOSTROPHE", True),
+            "`": ("GRAVE", False),
+            "~": ("GRAVE", True),
+            ",": ("COMMA", False),
+            "<": ("COMMA", True),
+            ".": ("DOT", False),
+            ">": ("DOT", True),
+            "/": ("SLASH", False),
+            "?": ("SLASH", True),
+            "!": ("1", True),
+            "@": ("2", True),
+            "#": ("3", True),
+            "$": ("4", True),
+            "%": ("5", True),
+            "^": ("6", True),
+            "&": ("7", True),
+            "*": ("8", True),
+            "(": ("9", True),
+            ")": ("0", True),
+            " ": ("SPACE", False),
+            "\n": ("ENTER", False),
             "\t": ("TAB", False),
         }
         for character in value:
@@ -264,25 +313,39 @@ class VirtualPointerBackend:
             "SUPER": ecodes.KEY_LEFTMETA,
         }
         named = {
-            "ENTER": "ENTER", "RETURN": "ENTER", "TAB": "TAB",
-            "ESC": "ESC", "ESCAPE": "ESC", "BACKSPACE": "BACKSPACE",
-            "DELETE": "DELETE", "UP": "UP", "DOWN": "DOWN",
-            "LEFT": "LEFT", "RIGHT": "RIGHT", "HOME": "HOME",
-            "END": "END", "PAGEUP": "PAGEUP", "PAGEDOWN": "PAGEDOWN",
+            "ENTER": "ENTER",
+            "RETURN": "ENTER",
+            "TAB": "TAB",
+            "ESC": "ESC",
+            "ESCAPE": "ESC",
+            "BACKSPACE": "BACKSPACE",
+            "DELETE": "DELETE",
+            "UP": "UP",
+            "DOWN": "DOWN",
+            "LEFT": "LEFT",
+            "RIGHT": "RIGHT",
+            "HOME": "HOME",
+            "END": "END",
+            "PAGEUP": "PAGEUP",
+            "PAGEDOWN": "PAGEDOWN",
             "SPACE": "SPACE",
         }
         parts = [part.strip().upper() for part in key.split("+")]
         if not parts or not parts[-1]:
             raise ValueError("unsupported key chord")
         prefix = parts[:-1]
-        if len(prefix) != len(set(prefix)) or any(part not in modifiers for part in prefix):
+        if len(prefix) != len(set(prefix)) or any(
+            part not in modifiers for part in prefix
+        ):
             raise ValueError("unsupported key modifier")
         final = parts[-1]
         if len(final) == 1 and final.isascii() and final.isalnum():
             name = final
         elif final in named:
             name = named[final]
-        elif final.startswith("F") and final[1:].isdigit() and 1 <= int(final[1:]) <= 12:
+        elif (
+            final.startswith("F") and final[1:].isdigit() and 1 <= int(final[1:]) <= 12
+        ):
             name = final
         else:
             raise ValueError("unsupported key")

@@ -86,10 +86,11 @@ def run_local(
     """Run a validated local scenario and always write a run report."""
     scenario = load_scenario(path)
     if scenario.target == "desktop":
-        if region is None and scenario.region is None:
+        bounded = region or scenario.region
+        if bounded is None:
             report = _infra_report(scenario, "desktop target requires --region")
             return report, write_report(report, [], root)
-        return run_desktop(scenario, region or scenario.region, root)
+        return run_desktop(scenario, bounded, root)
     observer = FrameCollector()
     if scenario.target != "hmi_mock":
         report = _infra_report(

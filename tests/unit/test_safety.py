@@ -194,9 +194,7 @@ def test_desktop_routes_scroll_and_keyboard_with_fresh_capture() -> None:
         session_type="x11",
     )
     executor.capture()
-    executor.perform(
-        Action(kind="scroll", x=25, y=35, direction="down", ticks=2)
-    )
+    executor.perform(Action(kind="scroll", x=25, y=35, direction="down", ticks=2))
     assert gui.scrolls == [(125, 135, "down", 2)]
     with pytest.raises(SafetyError, match="fresh screenshot"):
         executor.perform(Action(kind="type_text", text="hello"))
@@ -217,9 +215,7 @@ def test_desktop_rejects_scroll_outside_region() -> None:
     )
     executor.capture()
     with pytest.raises(SafetyError, match="outside the desktop region"):
-        executor.perform(
-            Action(kind="scroll", x=300, y=35, direction="down", ticks=1)
-        )
+        executor.perform(Action(kind="scroll", x=300, y=35, direction="down", ticks=1))
     assert gui.scrolls == []
 
 

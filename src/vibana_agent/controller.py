@@ -17,8 +17,8 @@ from vibana_agent.schema import (
     Action,
     Attempt,
     Candidate,
-    KeyPressSpec,
     Evidence,
+    KeyPressSpec,
     Report,
     Scenario,
     ScrollSpec,
@@ -125,7 +125,7 @@ def _annotate_action(
         x, y = action.x, action.y
         canvas.ellipse((x - 10, y - 10, x + 10, y + 10), outline="#ff3030", width=5)
     else:
-        label = action.kind
+        label: str = action.kind
         if action.kind == "key_press":
             label = f"key_press: {action.key}"
         elif action.kind == "type_text":
@@ -231,7 +231,12 @@ def run_scenario(
                     candidate,
                     allow_unlisted=scenario.target == "desktop",
                 )
-                logger.info("Planned %s for step %d (%s)", action.kind, step_number, step.instruction)
+                logger.info(
+                    "Planned %s for step %d (%s)",
+                    action.kind,
+                    step_number,
+                    step.instruction,
+                )
                 logger.info("-" * 80)
                 action_image = _annotate_action(before, candidates, action)
                 executor.perform(action)
