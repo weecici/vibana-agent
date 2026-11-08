@@ -31,7 +31,7 @@ _DESKTOP_STABILITY_RADIUS_PX = 32
 
 
 class SafetyError(ValueError):
-    """An action violates the local prototype's click policy."""
+    """An action violates the local prototype's input policy."""
 
 
 class DesktopExecutor:
@@ -83,26 +83,48 @@ class DesktopExecutor:
         return output.getvalue()
 
     def perform(self, action: Action) -> None:
-        """Activate a pixel if it is in bounds and its nearby target is unchanged."""
-        if not (
-            0 <= action.x < self._region.width and 0 <= action.y < self._region.height
+        """Inject a validated input after a fresh screenshot."""
+        if action.kind in {"click", "scroll"} and (
+            action.x is None
+            or action.y is None
+            or not (
+                0 <= action.x < self._region.width
+                and 0 <= action.y < self._region.height
+            )
         ):
-            raise SafetyError("click is outside the desktop region")
+            raise SafetyError("pointer is outside the desktop region")
         if self._before is None:
-            raise SafetyError("a fresh screenshot is required before clicking")
-        current = self._screenshot()
-        radius = _DESKTOP_STABILITY_RADIUS_PX
-        target_bounds = (
-            max(0, action.x - radius),
-            max(0, action.y - radius),
-            min(self._region.width, action.x + radius + 1),
-            min(self._region.height, action.y + radius + 1),
-        )
-        before_target = self._before.crop(target_bounds)
-        current_target = current.crop(target_bounds)
-        if ImageChops.difference(before_target, current_target).getbbox() is not None:
-            raise SafetyError("desktop target changed before the click")
-        self._gui.click(self._region.x + action.x, self._region.y + action.y)
+            raise SafetyError("a fresh screenshot is required before input")
+        if action.kind in {"click", "scroll"}:
+            assert action.x is not None and action.y is not None
+            current = self._screenshot()
+            radius = _DESKTOP_STABILITY_RADIUS_PX
+            target_bounds = (
+                max(0, action.x - radius),
+                max(0, action.y - radius),
+                min(self._region.width, action.x + radius + 1),
+                min(self._region.height, action.y + radius + 1),
+            )
+            before_target = self._before.crop(target_bounds)
+            current_target = current.crop(target_bounds)
+            if ImageChops.difference(before_target, current_target).getbbox() is not None:
+                raise SafetyError("desktop target changed before the input")
+            x = self._region.x + action.x
+            y = self._region.y + action.y
+            if action.kind == "click":
+                self._gui.click(x, y)
+            else:
+                assert action.direction is not None and action.ticks is not None
+                self._gui.scroll(x, y, action.direction, action.ticks)
+        elif action.kind == "type_text":
+            assert action.text is not None
+            self._gui.type_text(action.text)
+        else:
+            assert action.key is not None
+            try:
+                self._gui.key_press(action.key)
+            except ValueError as error:
+                raise SafetyError(str(error)) from error
         self._before = None
 
     def viewport(self) -> tuple[int, int]:
@@ -144,20 +166,28 @@ def validate_action(
     action: Action,
     viewport: tuple[int, int],
     instruction: str,
-    candidate: Candidate,
+    candidate: Candidate | None,
     allow_unlisted: bool = False,
 ) -> None:
-    """Reject clicks outside the chosen region or the local safe workflow."""
+    """Reject pointer input outside the chosen region or safe workflow."""
     if not allow_unlisted and instruction not in _ALLOWED_INSTRUCTIONS:
         raise SafetyError("instruction is not allowed in the local prototype")
+    if not allow_unlisted and action.kind != "click":
+        raise SafetyError("non-click actions require a desktop target")
     width, height = viewport
-    if not (0 <= action.x < width and 0 <= action.y < height):
-        raise SafetyError("click is outside the viewport")
-    box = candidate.box
-    if not (
-        box.x <= action.x < box.x + box.width and box.y <= action.y < box.y + box.height
-    ):
-        raise SafetyError("click is outside the chosen candidate")
+    if action.kind in {"click", "scroll"}:
+        assert action.x is not None and action.y is not None
+        if not (0 <= action.x < width and 0 <= action.y < height):
+            raise SafetyError("pointer is outside the viewport")
+        if action.kind == "click":
+            if candidate is None:
+                raise SafetyError("click requires a visible candidate")
+            box = candidate.box
+            if not (
+                box.x <= action.x < box.x + box.width
+                and box.y <= action.y < box.y + box.height
+            ):
+                raise SafetyError("click is outside the chosen candidate")
 
 
 class MockBrowserExecutor:
@@ -229,6 +259,9 @@ class MockBrowserExecutor:
 
     def perform(self, action: Action) -> None:
         """Click inside the local viewport in CSS pixels."""
+        if action.kind != "click":
+            raise SafetyError("mock HMI supports clicks only")
+        assert action.x is not None and action.y is not None
         width, height = self.viewport()
         if not (0 <= action.x < width and 0 <= action.y < height):
             raise SafetyError("click is outside the viewport")

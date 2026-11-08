@@ -52,7 +52,7 @@ flowchart TD
 ## Run on your desktop (Wayland or X11)
 
 The live agent captures an explicitly selected rectangle of the primary display,
-selects a visible target from that screenshot, asks before each click, and checks
+selects a visible target from that screenshot, acts inside the region, and checks
 the result from a fresh screenshot. Instructions can be given directly, without
 a YAML file or authored expectations:
 
@@ -62,7 +62,7 @@ uv run vibana desktop --region 100,100,900,650 "Open Settings" "Open Display"
 
 `--region` is `x,y,width,height` in primary-screen pixels. Choose a rectangle
 that contains only the application you want to control. Keep the terminal outside
-that rectangle while approving clicks, and leave the UI still during each model
+that rectangle while running the agent, and leave the UI still during each model
 call. The agent refuses a click if the rectangle changes between capture and
 execution. Declining a click stops the run. Press Ctrl+C to stop the agent.
 
@@ -113,13 +113,32 @@ advances the workflow. Model judgments can be wrong, so inspect `report.html`
 before treating the result as validated. Reports contain screenshots of the
 selected desktop region; keep them private when they show confidential data.
 
-The action set remains click-only. The model cannot type, run shell commands,
-or choose its own coordinates outside detected candidates. Each step has a
-three-attempt budget. Live clicks run automatically inside the selected region
-after the target stability check. Use a test application and a narrow region
-for initial runs. The terminal streams the model's structured candidate
-selection and logs its brief visual rationale and planned click before each
-action.
+Desktop workflows can also scroll, type text and press keys. Add an `action`
+object to a step to request one of these inputs:
+
+```yaml
+steps:
+  - instruction: Focus the search box
+  - instruction: Enter the search term
+    action: {kind: type_text, text: "battery status"}
+  - instruction: Submit the search
+    action: {kind: key_press, key: Enter}
+  - instruction: Show more results
+    action: {kind: scroll, direction: down, ticks: 3}
+```
+
+Scroll coordinates `x` and `y` are optional local pixels within the selected
+region; the region center is used otherwise. `ticks` is limited to 1–20.
+`type_text` sends printable US keyboard ASCII, newline and tab to the focused
+control. `key_press` accepts letters, digits, F1–F12, Enter, Tab, Escape,
+Backspace, Delete, arrows, Home, End, PageUp, PageDown and Space; prefix a key
+with `Ctrl+`, `Alt+`, `Shift+` or `Super+` for a chord such as `Ctrl+A`.
+Use a click step to focus an input before typing. Each action is recorded with
+before and after screenshots and must pass the step's visual verification.
+The model cannot run shell commands or choose coordinates outside detected
+click candidates. Each step has a three-attempt budget by default. Live pointer
+actions run inside the selected region after a target stability check. Use a
+test application and a narrow region for initial runs.
 
 ## Run the bundled mock benchmark
 

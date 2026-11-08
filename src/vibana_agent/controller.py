@@ -15,10 +15,13 @@ from vibana_agent.schema import (
     Action,
     Attempt,
     Candidate,
+    KeyPressSpec,
     Evidence,
     Report,
     Scenario,
+    ScrollSpec,
     StepResult,
+    TypeTextSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,10 +81,21 @@ def verify_text(image: bytes, expected: str, max_candidates: int = 40) -> Eviden
 def _annotate_action(
     image: bytes, candidates: list[Candidate], action: Action
 ) -> bytes:
-    overlay = Image.open(BytesIO(draw_candidates(image, candidates))).convert("RGB")
+    overlay = Image.open(BytesIO(image)).convert("RGB")
+    if candidates:
+        overlay = Image.open(BytesIO(draw_candidates(image, candidates))).convert("RGB")
     canvas = ImageDraw.Draw(overlay)
-    x, y = action.x, action.y
-    canvas.ellipse((x - 10, y - 10, x + 10, y + 10), outline="#ff3030", width=5)
+    if action.x is not None and action.y is not None:
+        x, y = action.x, action.y
+        canvas.ellipse((x - 10, y - 10, x + 10, y + 10), outline="#ff3030", width=5)
+    else:
+        label = action.kind
+        if action.kind == "key_press":
+            label = f"key_press: {action.key}"
+        elif action.kind == "type_text":
+            label = f"type_text: {len(action.text or '')} characters"
+        canvas.rectangle((0, 0, min(overlay.width, 400), 35), fill="#ffbd3b")
+        canvas.text((8, 8), label, fill="#071321")
     output = BytesIO()
     overlay.save(output, format="PNG")
     return output.getvalue()
@@ -126,25 +140,50 @@ def run_scenario(
             selected_action: Action | None = None
             try:
                 before = executor.capture()
-                candidates = perceive(
-                    before, step.instruction, max_candidates=settings.max_candidates
-                )
-                candidate = selector.select(
-                    before, step.instruction, candidates, settings
-                )
-                selected_candidate = candidate
-                if candidate not in candidates:
-                    raise GroundingError("selected candidate is not current")
-                box = candidate.box
-                action = Action(
-                    kind="click",
-                    x=box.x + box.width // 2,
-                    y=box.y + box.height // 2,
-                    instruction=(
-                        step.instruction if scenario.target == "desktop" else None
-                    ),
-                    target_label=candidate.text,
-                )
+                candidates: list[Candidate] = []
+                candidate: Candidate | None = None
+                if isinstance(step.action, ScrollSpec):
+                    width, height = executor.viewport()
+                    action = Action(
+                        kind="scroll",
+                        x=step.action.x if step.action.x is not None else width // 2,
+                        y=step.action.y if step.action.y is not None else height // 2,
+                        direction=step.action.direction,
+                        ticks=step.action.ticks,
+                        instruction=step.instruction,
+                    )
+                elif isinstance(step.action, TypeTextSpec):
+                    action = Action(
+                        kind="type_text",
+                        text=step.action.text,
+                        instruction=step.instruction,
+                    )
+                elif isinstance(step.action, KeyPressSpec):
+                    action = Action(
+                        kind="key_press",
+                        key=step.action.key,
+                        instruction=step.instruction,
+                    )
+                else:
+                    candidates = perceive(
+                        before, step.instruction, max_candidates=settings.max_candidates
+                    )
+                    candidate = selector.select(
+                        before, step.instruction, candidates, settings
+                    )
+                    selected_candidate = candidate
+                    if candidate not in candidates:
+                        raise GroundingError("selected candidate is not current")
+                    box = candidate.box
+                    action = Action(
+                        kind="click",
+                        x=box.x + box.width // 2,
+                        y=box.y + box.height // 2,
+                        instruction=(
+                            step.instruction if scenario.target == "desktop" else None
+                        ),
+                        target_label=candidate.text,
+                    )
                 selected_action = action
                 validate_action(
                     action,
@@ -153,16 +192,7 @@ def run_scenario(
                     candidate,
                     allow_unlisted=scenario.target == "desktop",
                 )
-                logger.info(
-                    "Planned click for step %d (%s): candidate %s (%s) at viewport "
-                    "pixel (%d, %d)",
-                    step_number,
-                    step.instruction,
-                    candidate.id,
-                    candidate.text or "unlabeled region",
-                    action.x,
-                    action.y,
-                )
+                logger.info("Planned %s for step %d (%s)", action.kind, step_number, step.instruction)
                 logger.info("-" * 80)
                 action_image = _annotate_action(before, candidates, action)
                 executor.perform(action)
@@ -183,7 +213,7 @@ def run_scenario(
                         status="EXECUTED",
                         candidate=candidate,
                         action=action,
-                        strategy="candidate",
+                        strategy="candidate" if candidate is not None else None,
                         evidence=evidence,
                         latency_ms=round((monotonic() - start) * 1000),
                     )

@@ -1,7 +1,7 @@
 """Validated inputs and outputs for the prototype."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,11 +21,64 @@ class Expectation(StrictModel):
     text_visible: str = Field(min_length=1)
 
 
+class ClickSpec(StrictModel):
+    """Select and click a visible candidate."""
+
+    kind: Literal["click"]
+
+
+class ScrollSpec(StrictModel):
+    """Scroll at a local screenshot point, defaulting to the region center."""
+
+    kind: Literal["scroll"]
+    direction: Literal["up", "down", "left", "right"]
+    ticks: int = Field(default=1, ge=1, le=20)
+    x: int | None = Field(default=None, ge=0)
+    y: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def require_coordinate_pair(self) -> "ScrollSpec":
+        """Keep the optional local pixel position unambiguous."""
+        if (self.x is None) != (self.y is None):
+            raise ValueError("scroll x and y must be provided together")
+        return self
+
+
+class TypeTextSpec(StrictModel):
+    """Type printable ASCII into the currently focused desktop control."""
+
+    kind: Literal["type_text"]
+    text: str = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_supported_text(self) -> "TypeTextSpec":
+        """Reject characters unavailable through the virtual US keyboard."""
+        if not self.text.isascii() or any(
+            not (character.isprintable() or character in "\n\t")
+            for character in self.text
+        ):
+            raise ValueError("type_text supports printable ASCII, newline and tab")
+        return self
+
+
+class KeyPressSpec(StrictModel):
+    """Press one key or a modifier chord on the desktop."""
+
+    kind: Literal["key_press"]
+    key: str = Field(min_length=1, max_length=50)
+
+
+StepAction = Annotated[
+    ClickSpec | ScrollSpec | TypeTextSpec | KeyPressSpec, Field(discriminator="kind")
+]
+
+
 class Step(StrictModel):
     """A requested UI instruction with an optional visual postcondition."""
 
     instruction: str = Field(min_length=1)
     expect: Expectation | None = None
+    action: StepAction | None = None
 
 
 class Scenario(StrictModel):
@@ -42,6 +95,11 @@ class Scenario(StrictModel):
         """Keep explicit pass criteria for mock and replay benchmarks."""
         if self.target != "desktop" and any(step.expect is None for step in self.steps):
             raise ValueError("mock and replay steps require expect")
+        if self.target != "desktop" and any(
+            step.action is not None and step.action.kind != "click"
+            for step in self.steps
+        ):
+            raise ValueError("non-click actions require a desktop target")
         return self
 
 
@@ -63,13 +121,32 @@ class Candidate(StrictModel):
 
 
 class Action(StrictModel):
-    """A click point in original screenshot pixels."""
+    """A bounded desktop or browser input in local screenshot pixels."""
 
-    kind: Literal["click"]
-    x: int
-    y: int
+    kind: Literal["click", "scroll", "type_text", "key_press"]
+    x: int | None = None
+    y: int | None = None
+    direction: Literal["up", "down", "left", "right"] | None = None
+    ticks: int | None = Field(default=None, ge=1, le=20)
+    text: str | None = None
+    key: str | None = None
     instruction: str | None = None
     target_label: str | None = None
+
+    @model_validator(mode="after")
+    def require_action_fields(self) -> "Action":
+        """Require the arguments belonging to the chosen input kind."""
+        if self.kind in {"click", "scroll"} and (self.x is None or self.y is None):
+            raise ValueError("pointer action requires x and y")
+        if self.kind == "scroll" and (self.direction is None or self.ticks is None):
+            raise ValueError("scroll requires direction and ticks")
+        if self.kind == "type_text" and not self.text:
+            raise ValueError("type_text requires text")
+        if self.kind == "type_text" and self.text is not None:
+            TypeTextSpec(kind="type_text", text=self.text)
+        if self.kind == "key_press" and not self.key:
+            raise ValueError("key_press requires key")
+        return self
 
 
 class Evidence(StrictModel):

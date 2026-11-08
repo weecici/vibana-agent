@@ -107,6 +107,9 @@ class FakeDesktopGui:
     def __init__(self) -> None:
         self.color = "navy"
         self.clicks: list[tuple[int, int]] = []
+        self.scrolls: list[tuple[int, int, str, int]] = []
+        self.typed: list[str] = []
+        self.keys: list[str] = []
         self.closed = False
 
     def screenshot(self, region: tuple[int, int, int, int]) -> Image.Image:
@@ -114,6 +117,15 @@ class FakeDesktopGui:
 
     def click(self, x: int, y: int) -> None:
         self.clicks.append((x, y))
+
+    def scroll(self, x: int, y: int, direction: str, ticks: int) -> None:
+        self.scrolls.append((x, y, direction, ticks))
+
+    def type_text(self, value: str) -> None:
+        self.typed.append(value)
+
+    def key_press(self, key: str) -> None:
+        self.keys.append(key)
 
     def size(self) -> tuple[int, int]:
         return 1280, 720
@@ -172,6 +184,43 @@ def test_desktop_rejects_changed_screen_before_click() -> None:
     with pytest.raises(SafetyError, match="changed"):
         executor.perform(Action(kind="click", x=25, y=35))
     assert gui.clicks == []
+
+
+def test_desktop_routes_scroll_and_keyboard_with_fresh_capture() -> None:
+    gui = FakeDesktopGui()
+    executor = DesktopExecutor(
+        Box(x=100, y=100, width=300, height=200),
+        gui=gui,
+        session_type="x11",
+    )
+    executor.capture()
+    executor.perform(
+        Action(kind="scroll", x=25, y=35, direction="down", ticks=2)
+    )
+    assert gui.scrolls == [(125, 135, "down", 2)]
+    with pytest.raises(SafetyError, match="fresh screenshot"):
+        executor.perform(Action(kind="type_text", text="hello"))
+    executor.capture()
+    executor.perform(Action(kind="type_text", text="hello"))
+    executor.capture()
+    executor.perform(Action(kind="key_press", key="Enter"))
+    assert gui.typed == ["hello"]
+    assert gui.keys == ["Enter"]
+
+
+def test_desktop_rejects_scroll_outside_region() -> None:
+    gui = FakeDesktopGui()
+    executor = DesktopExecutor(
+        Box(x=100, y=100, width=300, height=200),
+        gui=gui,
+        session_type="x11",
+    )
+    executor.capture()
+    with pytest.raises(SafetyError, match="outside the desktop region"):
+        executor.perform(
+            Action(kind="scroll", x=300, y=35, direction="down", ticks=1)
+        )
+    assert gui.scrolls == []
 
 
 def test_grim_capture_uses_region_pixels() -> None:
