@@ -58,6 +58,7 @@ a YAML file or authored expectations:
 
 ```bash
 uv run vibana desktop --region 100,100,900,650 "Open Settings" "Open Display"
+uv run vibana desktop --region 100,100,900,650 "scroll down 3 ticks" "press Enter"
 ```
 
 `--region` is `x,y,width,height` in primary-screen pixels. Choose a rectangle
@@ -133,6 +134,9 @@ region; the region center is used otherwise. `ticks` is limited to 1–20.
 control. `key_press` accepts letters, digits, F1–F12, Enter, Tab, Escape,
 Backspace, Delete, arrows, Home, End, PageUp, PageDown and Space; prefix a key
 with `Ctrl+`, `Alt+`, `Shift+` or `Super+` for a chord such as `Ctrl+A`.
+Plain desktop instructions also recognize `scroll down`, `scroll down 3 ticks`,
+`type: battery status`, and `press Ctrl+A`. Use an explicit `action` in YAML
+when the instruction has different wording or needs scroll coordinates.
 Use a click step to focus an input before typing. Each action is recorded with
 before and after screenshots and must pass the step's visual verification.
 The model cannot run shell commands or choose coordinates outside detected

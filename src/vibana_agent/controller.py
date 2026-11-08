@@ -1,11 +1,13 @@
 """Bounded screenshot-driven workflow controller."""
 
 import logging
+import re
 from io import BytesIO
 from time import monotonic
 from typing import Literal, Protocol
 
 from PIL import Image, ImageDraw
+from pydantic import ValidationError
 
 from vibana_agent.config import Settings
 from vibana_agent.executor import Executor, SafetyError, validate_action
@@ -25,6 +27,40 @@ from vibana_agent.schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_desktop_action(
+    instruction: str,
+) -> ScrollSpec | TypeTextSpec | KeyPressSpec | None:
+    text = instruction.strip()
+    lowered = text.casefold()
+    try:
+        if lowered.startswith("scroll "):
+            match = re.fullmatch(
+                r"scroll\s+(up|down|left|right)(?:\s+(\d+)(?:\s+ticks?)?)?",
+                text,
+                flags=re.IGNORECASE,
+            )
+            if match is None:
+                raise SafetyError("use 'scroll down 3 ticks' syntax")
+            directions: dict[str, Literal["up", "down", "left", "right"]] = {
+                "up": "up",
+                "down": "down",
+                "left": "left",
+                "right": "right",
+            }
+            return ScrollSpec(
+                kind="scroll",
+                direction=directions[match.group(1).casefold()],
+                ticks=int(match.group(2) or "1"),
+            )
+        if lowered.startswith("type:"):
+            return TypeTextSpec(kind="type_text", text=text.partition(":")[2].strip())
+        if lowered.startswith("press "):
+            return KeyPressSpec(kind="key_press", key=text[6:].strip())
+    except ValidationError as error:
+        raise SafetyError(f"invalid desktop input instruction: {error}") from error
+    return None
 
 
 class CandidateSelector(Protocol):
@@ -142,26 +178,29 @@ def run_scenario(
                 before = executor.capture()
                 candidates: list[Candidate] = []
                 candidate: Candidate | None = None
-                if isinstance(step.action, ScrollSpec):
+                action_spec = step.action
+                if action_spec is None and scenario.target == "desktop":
+                    action_spec = _infer_desktop_action(step.instruction)
+                if isinstance(action_spec, ScrollSpec):
                     width, height = executor.viewport()
                     action = Action(
                         kind="scroll",
-                        x=step.action.x if step.action.x is not None else width // 2,
-                        y=step.action.y if step.action.y is not None else height // 2,
-                        direction=step.action.direction,
-                        ticks=step.action.ticks,
+                        x=action_spec.x if action_spec.x is not None else width // 2,
+                        y=action_spec.y if action_spec.y is not None else height // 2,
+                        direction=action_spec.direction,
+                        ticks=action_spec.ticks,
                         instruction=step.instruction,
                     )
-                elif isinstance(step.action, TypeTextSpec):
+                elif isinstance(action_spec, TypeTextSpec):
                     action = Action(
                         kind="type_text",
-                        text=step.action.text,
+                        text=action_spec.text,
                         instruction=step.instruction,
                     )
-                elif isinstance(step.action, KeyPressSpec):
+                elif isinstance(action_spec, KeyPressSpec):
                     action = Action(
                         kind="key_press",
-                        key=step.action.key,
+                        key=action_spec.key,
                         instruction=step.instruction,
                     )
                 else:

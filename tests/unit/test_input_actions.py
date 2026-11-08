@@ -105,6 +105,42 @@ def test_desktop_explicit_actions_skip_candidate_selection(
     assert observer.actions[0] is not None
 
 
+@pytest.mark.parametrize(
+    ("instruction", "kind"),
+    [
+        ("scroll down 3 ticks", "scroll"),
+        ("type: battery status", "type_text"),
+        ("press Ctrl+A", "key_press"),
+    ],
+)
+def test_plain_desktop_input_instructions_route_without_click_selection(
+    instruction: str, kind: str
+) -> None:
+    scenario = Scenario.model_validate(
+        {
+            "name": "plain_input",
+            "target": "desktop",
+            "steps": [{"instruction": instruction}],
+        }
+    )
+
+    class UnexpectedSelector:
+        def select(self, *args: object) -> None:
+            raise AssertionError("input instruction must not select a click target")
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(),
+        RecordingObserver(),
+        UnexpectedSelector(),
+        verifier=AlwaysMetVerifier(),
+    )
+    assert report.status == "PASS"
+    assert executor.actions[0].kind == kind
+
+
 def test_non_click_actions_are_desktop_only() -> None:
     with pytest.raises(ValidationError):
         Scenario.model_validate(
