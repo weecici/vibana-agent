@@ -18,4 +18,6 @@ def test_ocr_detects_settings_on_mock_screenshot() -> None:
             screenshot = page.screenshot(scale="css")
         finally:
             browser.close()
-    assert any("Settings" in (candidate.text or "") for candidate in perceive(screenshot))
+    assert any(
+        "Settings" in (candidate.text or "") for candidate in perceive(screenshot)
+    )

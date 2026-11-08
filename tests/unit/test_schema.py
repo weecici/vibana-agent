@@ -10,7 +10,11 @@ from vibana_agent.schema import Scenario, load_scenario
 def test_missing_expect_is_invalid() -> None:
     with pytest.raises(ValidationError):
         Scenario.model_validate(
-            {"name": "bad", "target": "hmi_mock", "steps": [{"instruction": "Open Settings"}]}
+            {
+                "name": "bad",
+                "target": "hmi_mock",
+                "steps": [{"instruction": "Open Settings"}],
+            }
         )
 
 

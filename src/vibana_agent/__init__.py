@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from vibana-agent!")
+"""Vibana Agent: screenshot-driven local HMI validation."""

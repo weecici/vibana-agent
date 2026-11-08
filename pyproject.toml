@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-vibana-agent = "vibana_agent:main"
+vibana = "vibana_agent.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
@@ -51,7 +51,6 @@ select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [dependency-groups]
