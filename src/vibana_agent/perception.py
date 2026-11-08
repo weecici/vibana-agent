@@ -112,12 +112,15 @@ def _instruction_terms(instruction: str | None) -> set[str]:
     }
 
 
-def perceive(image: bytes, instruction: str | None = None) -> list[Candidate]:
+def perceive(
+    image: bytes, instruction: str | None = None, max_candidates: int = 40
+) -> list[Candidate]:
     """Find OCR lines and rectangular regions in screenshot pixels.
 
     Args:
         image: Screenshot bytes whose regions use screenshot pixel coordinates.
         instruction: Optional goal used to prioritize matching visible text.
+        max_candidates: Maximum number of OCR and region candidates to return.
     """
     screenshot = Image.open(BytesIO(image)).convert("RGB")
     proposals = _ocr_boxes(screenshot)
@@ -137,7 +140,7 @@ def perceive(image: bytes, instruction: str | None = None) -> list[Candidate]:
         candidates.append(
             Candidate(id=len(candidates) + 1, box=box, text=label or None)
         )
-        if len(candidates) >= 40:
+        if len(candidates) >= max_candidates:
             break
     return candidates
 

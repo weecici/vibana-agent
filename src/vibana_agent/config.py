@@ -14,4 +14,5 @@ class Settings(BaseSettings):
     seed: int = 42
     max_attempts: int = Field(default=3, gt=0)
     max_steps: int = Field(default=10, gt=0)
+    max_candidates: int = Field(default=40, gt=0)
     model_timeout_s: float = Field(default=180.0, gt=0)

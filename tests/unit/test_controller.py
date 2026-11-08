@@ -85,10 +85,10 @@ def setup_pixels(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         controller,
         "perceive",
-        lambda image, instruction=None: [CANDIDATE],
+        lambda image, instruction=None, max_candidates=40: [CANDIDATE],
     )
 
-    def verify(image: bytes, expected: str) -> Evidence:
+    def verify(image: bytes, expected: str, max_candidates: int = 40) -> Evidence:
         pixel = Image.open(BytesIO(image)).getpixel((0, 0))
         matched = pixel == (0, 128, 0)
         return Evidence(matched=matched, observed_text=expected if matched else "")

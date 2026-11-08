@@ -63,9 +63,9 @@ class GoalVerifier(Protocol):
         ...
 
 
-def verify_text(image: bytes, expected: str) -> Evidence:
+def verify_text(image: bytes, expected: str, max_candidates: int = 40) -> Evidence:
     """Check an exact OCR line on a fresh screenshot, in screenshot pixels."""
-    candidates = perceive(image)
+    candidates = perceive(image, max_candidates=max_candidates)
     observed = [candidate.text for candidate in candidates if candidate.text]
 
     def normalize(value: str) -> str:
@@ -126,7 +126,9 @@ def run_scenario(
             selected_action: Action | None = None
             try:
                 before = executor.capture()
-                candidates = perceive(before, step.instruction)
+                candidates = perceive(
+                    before, step.instruction, max_candidates=settings.max_candidates
+                )
                 candidate = selector.select(
                     before, step.instruction, candidates, settings
                 )
@@ -167,7 +169,9 @@ def run_scenario(
                 performed = True
                 after = executor.capture()
                 if step.expect is not None:
-                    evidence = verify_text(after, step.expect.text_visible)
+                    evidence = verify_text(
+                        after, step.expect.text_visible, settings.max_candidates
+                    )
                 elif verifier is not None:
                     evidence = verifier.verify(
                         before, after, step.instruction, settings

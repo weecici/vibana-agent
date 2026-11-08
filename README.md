@@ -140,6 +140,9 @@ The CLI prints the verdict and a path to `report.html`. Open that file in a brow
 `PASS` means each step had an action and its expected text was observed on a fresh screenshot. `FAIL` means a step exhausted its three attempts; `INFRA_ERROR` means a required service or browser failed. The CLI exits nonzero for either failure. The mock target permits only its four benchmark instructions. Unknown model answers or coordinates do not cause a click on either target.
 
 To change the local model, set `VIBANA_MODEL` before the run. A replacement model should be calibrated against the known mock workflow before trusting its selections. The vision call uses an 8192-token context, zero temperature, a fixed seed, and a 1280-pixel maximum image side.
+The candidate budget defaults to 40 combined OCR lines and detected regions. Set
+`VIBANA_MAX_CANDIDATES` to a positive integer to change it, for example
+`VIBANA_MAX_CANDIDATES=80 uv run vibana run scenarios/settings_brightness_70.yaml`.
 
 ### Developer checks
 
