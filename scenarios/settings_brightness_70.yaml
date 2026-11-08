@@ -1,0 +1,11 @@
+name: settings_brightness_70
+target: hmi_mock
+steps:
+  - instruction: "Open Settings"
+    expect: { text_visible: "Display" }
+  - instruction: "Open Display"
+    expect: { text_visible: "Brightness" }
+  - instruction: "Set brightness to 70%"
+    expect: { text_visible: "70%" }
+  - instruction: "Return Home"
+    expect: { text_visible: "Home" }
