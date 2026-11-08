@@ -1,10 +1,9 @@
 """Desktop scroll and keyboard actions remain bounded and observable."""
 
+from collections.abc import Sequence
 from io import BytesIO
 
 import pytest
-from collections.abc import Sequence
-
 from evdev import AbsInfo, ecodes
 from PIL import Image
 from pydantic import ValidationError
@@ -279,6 +278,7 @@ def test_pointer_and_keyboard_use_separate_device_capabilities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A keyboard capability must not change the working pointer profile."""
+
     class Capture:
         def screenshot(self, region: tuple[int, int, int, int]) -> Image.Image:
             return Image.new("RGB", (region[2], region[3]))

@@ -152,15 +152,41 @@ class VirtualPointerBackend:
     def _keyboard(self) -> PointerDevice:
         if self._keyboard_device is None:
             names = (
-                "SPACE", "ENTER", "TAB", "ESC", "BACKSPACE", "DELETE",
-                "UP", "DOWN", "LEFT", "RIGHT", "HOME", "END",
-                "PAGEUP", "PAGEDOWN", "LEFTCTRL", "LEFTALT",
-                "LEFTSHIFT", "LEFTMETA", "MINUS", "EQUAL",
-                "LEFTBRACE", "RIGHTBRACE", "BACKSLASH", "SEMICOLON",
-                "APOSTROPHE", "GRAVE", "COMMA", "DOT", "SLASH",
+                "SPACE",
+                "ENTER",
+                "TAB",
+                "ESC",
+                "BACKSPACE",
+                "DELETE",
+                "UP",
+                "DOWN",
+                "LEFT",
+                "RIGHT",
+                "HOME",
+                "END",
+                "PAGEUP",
+                "PAGEDOWN",
+                "LEFTCTRL",
+                "LEFTALT",
+                "LEFTSHIFT",
+                "LEFTMETA",
+                "MINUS",
+                "EQUAL",
+                "LEFTBRACE",
+                "RIGHTBRACE",
+                "BACKSLASH",
+                "SEMICOLON",
+                "APOSTROPHE",
+                "GRAVE",
+                "COMMA",
+                "DOT",
+                "SLASH",
             )
             keys = [
-                *[int(getattr(ecodes, f"KEY_{letter}")) for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+                *[
+                    int(getattr(ecodes, f"KEY_{letter}"))
+                    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                ],
                 *[int(getattr(ecodes, f"KEY_{digit}")) for digit in "0123456789"],
                 *[int(getattr(ecodes, f"KEY_{name}")) for name in names],
                 *[int(getattr(ecodes, f"KEY_F{number}")) for number in range(1, 13)],
@@ -355,6 +381,9 @@ class VirtualPointerBackend:
 
     def close(self) -> None:
         """Close the virtual pointer device."""
-        if self._keyboard_device is not None and self._keyboard_device is not self._device:
+        if (
+            self._keyboard_device is not None
+            and self._keyboard_device is not self._device
+        ):
             self._keyboard_device.close()
         self._device.close()
