@@ -59,3 +59,17 @@ def select_candidate(
         stream=False,
     )
     return parse_selection(response.message.content or "", candidates)
+
+
+class OllamaSelector:
+    """Candidate-selector adapter for the local Ollama vision model."""
+
+    def select(
+        self,
+        image: bytes,
+        instruction: str,
+        candidates: list[Candidate],
+        settings: Settings,
+    ) -> Candidate:
+        """Return a validated candidate from the current screenshot."""
+        return select_candidate(image, instruction, candidates, settings)
