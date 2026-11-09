@@ -62,7 +62,8 @@ def test_model_can_choose_keyboard_action_for_search_instruction() -> None:
     instruction = 'Search for "How to become AI Engineer"'
     action, candidate = parse_desktop_action(
         '{"kind":"type_text","text":"How to become AI Engineer",'
-        '"submit":true,"reason":"enter the requested search"}',
+        '"submit":true,"wait_after_ms":3500,'
+        '"reason":"enter the requested search"}',
         instruction,
         [],
         (960, 1048),
@@ -71,6 +72,40 @@ def test_model_can_choose_keyboard_action_for_search_instruction() -> None:
     assert action.kind == "type_text"
     assert action.text == "How to become AI Engineer"
     assert action.submit
+    assert action.wait_after_ms == 3500
+
+
+def test_model_cannot_request_wait_longer_than_ten_seconds() -> None:
+    accepted, _ = parse_desktop_action(
+        '{"kind":"click","candidate_id":1,"wait_after_ms":10000,'
+        '"reason":"open a slow page"}',
+        "Open the page",
+        [Candidate(id=1, box=Box(x=10, y=20, width=100, height=40))],
+        (960, 1048),
+    )
+    assert accepted.wait_after_ms == 10000
+    with pytest.raises(GroundingError, match="invalid structured desktop action"):
+        parse_desktop_action(
+            '{"kind":"click","candidate_id":1,"wait_after_ms":10001,'
+            '"reason":"open a slow page"}',
+            "Open the page",
+            [Candidate(id=1, box=Box(x=10, y=20, width=100, height=40))],
+            (960, 1048),
+        )
+
+
+def test_model_can_wait_after_clicking_a_slow_control() -> None:
+    candidate = Candidate(id=1, box=Box(x=10, y=20, width=100, height=40))
+    action, selected = parse_desktop_action(
+        '{"kind":"click","candidate_id":1,"wait_after_ms":2500,'
+        '"reason":"wait for the page to load"}',
+        "Open the page",
+        [candidate],
+        (960, 1048),
+    )
+    assert selected == candidate
+    assert action.kind == "click"
+    assert action.wait_after_ms == 2500
 
 
 def test_desktop_action_rejects_model_invented_text() -> None:

@@ -201,7 +201,9 @@ def test_plain_desktop_input_instructions_route_without_click_selection(
     assert executor.actions[0].kind == kind
 
 
-def test_search_instruction_types_query_and_submits_it() -> None:
+def test_search_instruction_types_query_and_submits_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     query = "How to become AI Engineer"
     scenario = Scenario.model_validate(
         {
@@ -221,6 +223,7 @@ def test_search_instruction_types_query_and_submits_it() -> None:
         ) -> Candidate:
             raise AssertionError("search instruction must route to keyboard input")
 
+    monkeypatch.setattr(controller, "sleep", lambda seconds: None)
     executor = RecordingExecutor()
     report = controller.run_scenario(
         scenario,
@@ -234,9 +237,90 @@ def test_search_instruction_types_query_and_submits_it() -> None:
     assert executor.actions[0].kind == "type_text"
     assert executor.actions[0].text == query
     assert executor.actions[0].submit
+    assert executor.actions[0].wait_after_ms == 2000
 
 
-def test_search_instruction_uses_explicit_mapping_before_model_planner() -> None:
+def test_action_waits_before_capturing_after_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = Scenario.model_validate(
+        {
+            "name": "wait_after_type",
+            "target": "desktop",
+            "steps": [
+                {
+                    "instruction": "type and wait",
+                    "action": {
+                        "kind": "type_text",
+                        "text": "query",
+                        "wait_after_ms": 1500,
+                    },
+                }
+            ],
+        }
+    )
+    events: list[str | tuple[str, float]] = []
+
+    class OrderedExecutor(RecordingExecutor):
+        def capture(self) -> bytes:
+            events.append("capture")
+            return super().capture()
+
+        def perform(self, action: Action) -> None:
+            events.append("perform")
+            super().perform(action)
+
+    monkeypatch.setattr(
+        controller,
+        "sleep",
+        lambda seconds: events.append(("wait", seconds)),
+    )
+
+    class UnexpectedSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("explicit input must not select a click target")
+
+    report = controller.run_scenario(
+        scenario,
+        OrderedExecutor(),
+        Settings(),
+        RecordingObserver(),
+        selector=UnexpectedSelector(),
+        verifier=AlwaysMetVerifier(),
+    )
+    assert report.status == "PASS"
+    assert events == ["capture", "perform", ("wait", 1.5), "capture"]
+
+
+def test_action_wait_is_limited_to_ten_seconds() -> None:
+    with pytest.raises(ValidationError):
+        Scenario.model_validate(
+            {
+                "name": "long_wait",
+                "target": "desktop",
+                "steps": [
+                    {
+                        "instruction": "type and wait",
+                        "action": {
+                            "kind": "type_text",
+                            "text": "query",
+                            "wait_after_ms": 10001,
+                        },
+                    }
+                ],
+            }
+        )
+
+
+def test_search_instruction_uses_explicit_mapping_before_model_planner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     query = "How to become AI Engineer"
     scenario = Scenario.model_validate(
         {
@@ -267,6 +351,7 @@ def test_search_instruction_uses_explicit_mapping_before_model_planner() -> None
         ) -> tuple[Action, Candidate | None]:
             raise AssertionError("known search syntax must not reach the model")
 
+    monkeypatch.setattr(controller, "sleep", lambda seconds: None)
     executor = RecordingExecutor()
     report = controller.run_scenario(
         scenario,

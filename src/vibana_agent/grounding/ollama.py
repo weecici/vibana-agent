@@ -46,6 +46,7 @@ class DesktopActionSelection(BaseModel):
     y: int | None = Field(default=None, ge=0)
     text: str | None = None
     submit: bool = False
+    wait_after_ms: int = Field(default=0, ge=0, le=10_000)
     key: str | None = None
     reason: str
 
@@ -87,6 +88,7 @@ def parse_desktop_action(
                 y=candidate.box.y + candidate.box.height // 2,
                 instruction=instruction,
                 target_label=candidate.text,
+                wait_after_ms=selection.wait_after_ms,
             ),
             candidate,
         )
@@ -116,6 +118,7 @@ def parse_desktop_action(
                 y=scroll.y if scroll.y is not None else height // 2,
                 direction=scroll.direction,
                 ticks=scroll.ticks,
+                wait_after_ms=selection.wait_after_ms,
                 instruction=instruction,
             ),
             None,
@@ -141,6 +144,7 @@ def parse_desktop_action(
                 kind="type_text",
                 text=typed.text,
                 submit=typed.submit,
+                wait_after_ms=selection.wait_after_ms,
                 instruction=instruction,
             ),
             None,
@@ -152,7 +156,12 @@ def parse_desktop_action(
     except ValidationError as error:
         raise GroundingError("invalid key_press action") from error
     return (
-        Action(kind="key_press", key=key_press.key, instruction=instruction),
+        Action(
+            kind="key_press",
+            key=key_press.key,
+            wait_after_ms=selection.wait_after_ms,
+            instruction=instruction,
+        ),
         None,
     )
 
@@ -236,6 +245,8 @@ def plan_desktop_action(
         "Return kind=type_text only when the instruction asks to search or type; "
         "copy the requested text exactly from the instruction and set submit=true "
         "when it asks to search. Return kind=key_press only for a requested key. "
+        "Set wait_after_ms between 0 and 10000 when the action may trigger delayed "
+        "UI updates; use 0 otherwise. For submitted searches, use 2000. "
         "Do not invent text, candidate IDs, or actions. For scroll, omit x and y "
         "to use the viewport center. Give a brief rationale."
     )

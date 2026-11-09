@@ -3,7 +3,7 @@
 import logging
 import re
 from io import BytesIO
-from time import monotonic
+from time import monotonic, sleep
 from typing import Literal, Protocol
 
 from PIL import Image, ImageDraw
@@ -17,6 +17,7 @@ from vibana_agent.schema import (
     Action,
     Attempt,
     Candidate,
+    ClickSpec,
     Evidence,
     KeyPressSpec,
     Report,
@@ -39,7 +40,12 @@ def _infer_desktop_action(
             r"search\s+for\s+(['\"])(.+?)\1", text, flags=re.IGNORECASE
         )
         if search is not None:
-            return TypeTextSpec(kind="type_text", text=search.group(2), submit=True)
+            return TypeTextSpec(
+                kind="type_text",
+                text=search.group(2),
+                submit=True,
+                wait_after_ms=2000,
+            )
         if lowered.startswith("scroll "):
             match = re.fullmatch(
                 r"scroll\s+(up|down|left|right)(?:\s+(\d+)(?:\s+ticks?)?)?",
@@ -210,6 +216,7 @@ def run_scenario(
                         y=action_spec.y if action_spec.y is not None else height // 2,
                         direction=action_spec.direction,
                         ticks=action_spec.ticks,
+                        wait_after_ms=action_spec.wait_after_ms,
                         instruction=step.instruction,
                     )
                 elif isinstance(action_spec, TypeTextSpec):
@@ -217,12 +224,14 @@ def run_scenario(
                         kind="type_text",
                         text=action_spec.text,
                         submit=action_spec.submit,
+                        wait_after_ms=action_spec.wait_after_ms,
                         instruction=step.instruction,
                     )
                 elif isinstance(action_spec, KeyPressSpec):
                     action = Action(
                         kind="key_press",
                         key=action_spec.key,
+                        wait_after_ms=action_spec.wait_after_ms,
                         instruction=step.instruction,
                     )
                 elif scenario.target == "desktop" and planner is not None:
@@ -236,6 +245,13 @@ def run_scenario(
                         settings,
                         executor.viewport(),
                     )
+                    if (
+                        isinstance(action_spec, ClickSpec)
+                        and action_spec.wait_after_ms > 0
+                    ):
+                        action = action.model_copy(
+                            update={"wait_after_ms": action_spec.wait_after_ms}
+                        )
                     selected_candidate = candidate
                     if candidate is not None and candidate not in candidates:
                         raise GroundingError("planned candidate is not current")
@@ -254,6 +270,11 @@ def run_scenario(
                         kind="click",
                         x=box.x + box.width // 2,
                         y=box.y + box.height // 2,
+                        wait_after_ms=(
+                            action_spec.wait_after_ms
+                            if isinstance(action_spec, ClickSpec)
+                            else 0
+                        ),
                         instruction=(
                             step.instruction if scenario.target == "desktop" else None
                         ),
@@ -277,6 +298,8 @@ def run_scenario(
                 action_image = _annotate_action(before, candidates, action)
                 executor.perform(action)
                 performed = True
+                if action.wait_after_ms > 0:
+                    sleep(action.wait_after_ms / 1000)
                 after = executor.capture()
                 if step.expect is not None:
                     evidence = verify_text(

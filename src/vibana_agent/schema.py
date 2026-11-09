@@ -25,6 +25,7 @@ class ClickSpec(StrictModel):
     """Select and click a visible candidate."""
 
     kind: Literal["click"]
+    wait_after_ms: int = Field(default=0, ge=0, le=10_000)
 
 
 class ScrollSpec(StrictModel):
@@ -35,6 +36,7 @@ class ScrollSpec(StrictModel):
     ticks: int = Field(default=1, ge=1, le=20)
     x: int | None = Field(default=None, ge=0)
     y: int | None = Field(default=None, ge=0)
+    wait_after_ms: int = Field(default=0, ge=0, le=10_000)
 
     @model_validator(mode="after")
     def require_coordinate_pair(self) -> "ScrollSpec":
@@ -50,6 +52,7 @@ class TypeTextSpec(StrictModel):
     kind: Literal["type_text"]
     text: str = Field(min_length=1, max_length=1000)
     submit: bool = False
+    wait_after_ms: int = Field(default=0, ge=0, le=10_000)
 
     @model_validator(mode="after")
     def require_supported_text(self) -> "TypeTextSpec":
@@ -67,6 +70,7 @@ class KeyPressSpec(StrictModel):
 
     kind: Literal["key_press"]
     key: str = Field(min_length=1, max_length=50)
+    wait_after_ms: int = Field(default=0, ge=0, le=10_000)
 
 
 StepAction = Annotated[
@@ -101,6 +105,11 @@ class Scenario(StrictModel):
             for step in self.steps
         ):
             raise ValueError("non-click actions require a desktop target")
+        if self.target != "desktop" and any(
+            step.action is not None and step.action.wait_after_ms > 0
+            for step in self.steps
+        ):
+            raise ValueError("post-action waits require a desktop target")
         return self
 
 
@@ -131,6 +140,7 @@ class Action(StrictModel):
     ticks: int | None = Field(default=None, ge=1, le=20)
     text: str | None = None
     submit: bool = False
+    wait_after_ms: int = Field(default=0, ge=0, le=10_000)
     key: str | None = None
     instruction: str | None = None
     target_label: str | None = None

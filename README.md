@@ -138,8 +138,10 @@ Plain desktop instructions also recognize `scroll down`, `scroll down 3 ticks`,
 `type: battery status`, `press Ctrl+A`, and `Search for "battery status"`.
 The search form types the quoted query and presses Enter. Use an explicit
 `action` in YAML when you want to set the action directly or choose scroll
-coordinates. For other natural language instructions, the vision model selects
-among click, scroll, text entry and key press.
+coordinates. An action can set `wait_after_ms` from 0 to 10000 before the
+verification screenshot; quoted searches wait 2000 ms by default. For other
+natural language instructions, the vision model selects among click, scroll,
+text entry and key press, and can request a wait when the UI may update slowly.
 Use a click step to focus an input before typing. Each action is recorded with
 before and after screenshots and must pass the step's visual verification.
 Typing and key presses run once per step; an uncertain visual result fails the
