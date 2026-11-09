@@ -9,7 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from vibana_agent.config import Settings
 from vibana_agent.perception import draw_candidates, resize_for_model
-from vibana_agent.schema import Action, Candidate, KeyPressSpec, ScrollSpec, TypeTextSpec
+from vibana_agent.schema import (
+    Action,
+    Candidate,
+    KeyPressSpec,
+    ScrollSpec,
+    TypeTextSpec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +121,10 @@ def parse_desktop_action(
             None,
         )
     if selection.kind == "type_text":
-        if selection.text is None or selection.text.casefold() not in instruction.casefold():
+        if (
+            selection.text is None
+            or selection.text.casefold() not in instruction.casefold()
+        ):
             raise GroundingError("typed text must come from the instruction")
         if search is not None and (
             selection.text != search.group(2) or not selection.submit
@@ -245,9 +254,7 @@ def plan_desktop_action(
     action, candidate = parse_desktop_action(
         "".join(response_parts), instruction, candidates, viewport
     )
-    logger.info(
-        "Model chose desktop action %s: %s", action.kind, action.instruction
-    )
+    logger.info("Model chose desktop action %s: %s", action.kind, action.instruction)
     return action, candidate
 
 
