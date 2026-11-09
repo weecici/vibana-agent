@@ -107,6 +107,7 @@ def test_desktop_run_uses_file_settings(
         observer: object,
         selector: object,
         verifier: object,
+        planner: object,
     ) -> Report:
         observed.append(settings)
         return Report(scenario=scenario.name, status="PASS", steps=[])

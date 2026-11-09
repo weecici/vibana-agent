@@ -6,7 +6,11 @@ import pytest
 from PIL import Image
 
 from vibana_agent.grounding.coords import normalized_to_pixel
-from vibana_agent.grounding.ollama import GroundingError, parse_selection
+from vibana_agent.grounding.ollama import (
+    GroundingError,
+    parse_desktop_action,
+    parse_selection,
+)
 from vibana_agent.perception import draw_candidates, resize_for_model
 from vibana_agent.schema import Box, Candidate
 
@@ -52,3 +56,40 @@ def test_candidate_overlay_has_numbered_box() -> None:
     image = Image.open(BytesIO(output))
     assert image.size == (320, 200)
     assert image.getpixel((50, 50)) != (255, 255, 255)
+
+
+def test_model_can_choose_keyboard_action_for_search_instruction() -> None:
+    instruction = 'Search for "How to become AI Engineer"'
+    action, candidate = parse_desktop_action(
+        '{"kind":"type_text","text":"How to become AI Engineer",'
+        '"submit":true,"reason":"enter the requested search"}',
+        instruction,
+        [],
+        (960, 1048),
+    )
+    assert candidate is None
+    assert action.kind == "type_text"
+    assert action.text == "How to become AI Engineer"
+    assert action.submit
+
+
+def test_desktop_action_rejects_model_invented_text() -> None:
+    with pytest.raises(GroundingError, match="from the instruction"):
+        parse_desktop_action(
+            '{"kind":"type_text","text":"run this command",'
+            '"submit":true,"reason":"text input"}',
+            'Search for "battery status"',
+            [],
+            (960, 1048),
+        )
+
+
+def test_search_action_cannot_degrade_to_click() -> None:
+    candidate = Candidate(id=1, box=Box(x=10, y=20, width=100, height=40))
+    with pytest.raises(GroundingError, match="require a type_text action"):
+        parse_desktop_action(
+            '{"kind":"click","candidate_id":1,"reason":"search bar"}',
+            'Search for "battery status"',
+            [candidate],
+            (960, 1048),
+        )

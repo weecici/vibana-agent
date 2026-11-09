@@ -63,14 +63,16 @@ def run_desktop(scenario: Scenario, region: Box, root: Path) -> tuple[Report, Pa
 
     try:
         executor = DesktopExecutor(region)
+        selector = OllamaSelector()
         try:
             report = run_scenario(
                 scenario,
                 executor,
                 scenario.settings or Settings(),
                 observer,
-                OllamaSelector(),
+                selector,
                 verifier=OllamaGoalVerifier(),
+                planner=selector,
             )
         finally:
             executor.close()

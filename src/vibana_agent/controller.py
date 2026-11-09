@@ -82,6 +82,21 @@ class CandidateSelector(Protocol):
         ...
 
 
+class DesktopActionPlanner(Protocol):
+    """Select a validated desktop action from instruction and screenshot."""
+
+    def plan(
+        self,
+        image: bytes,
+        instruction: str,
+        candidates: list[Candidate],
+        settings: Settings,
+        viewport: tuple[int, int],
+    ) -> tuple[Action, Candidate | None]:
+        """Return one action and its current candidate, when it clicks."""
+        ...
+
+
 class RunObserver(Protocol):
     """Receive image evidence from each executed attempt."""
 
@@ -149,6 +164,7 @@ def run_scenario(
     observer: RunObserver,
     selector: CandidateSelector,
     verifier: GoalVerifier | None = None,
+    planner: DesktopActionPlanner | None = None,
 ) -> Report:
     """Act only on validated candidates and advance on fresh visual proof."""
     if len(scenario.steps) > settings.max_steps:
@@ -209,6 +225,20 @@ def run_scenario(
                         key=action_spec.key,
                         instruction=step.instruction,
                     )
+                elif scenario.target == "desktop" and planner is not None:
+                    candidates = perceive(
+                        before, step.instruction, max_candidates=settings.max_candidates
+                    )
+                    action, candidate = planner.plan(
+                        before,
+                        step.instruction,
+                        candidates,
+                        settings,
+                        executor.viewport(),
+                    )
+                    selected_candidate = candidate
+                    if candidate is not None and candidate not in candidates:
+                        raise GroundingError("planned candidate is not current")
                 else:
                     candidates = perceive(
                         before, step.instruction, max_candidates=settings.max_candidates

@@ -236,6 +236,102 @@ def test_search_instruction_types_query_and_submits_it() -> None:
     assert executor.actions[0].submit
 
 
+def test_search_instruction_uses_explicit_mapping_before_model_planner() -> None:
+    query = "How to become AI Engineer"
+    scenario = Scenario.model_validate(
+        {
+            "name": "planned_search",
+            "target": "desktop",
+            "steps": [{"instruction": f'Search for "{query}"'}],
+        }
+    )
+
+    class UnexpectedSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("search instruction must route to keyboard input")
+
+    class UnexpectedPlanner:
+        def plan(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+            viewport: tuple[int, int],
+        ) -> tuple[Action, Candidate | None]:
+            raise AssertionError("known search syntax must not reach the model")
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(),
+        RecordingObserver(),
+        UnexpectedSelector(),
+        verifier=AlwaysMetVerifier(),
+        planner=UnexpectedPlanner(),
+    )
+    assert report.status == "PASS"
+    assert executor.actions[0].kind == "type_text"
+    assert executor.actions[0].text == query
+    assert executor.actions[0].submit
+
+
+def test_desktop_action_planner_handles_unstructured_text_instruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = Scenario.model_validate(
+        {
+            "name": "planner_input",
+            "target": "desktop",
+            "steps": [{"instruction": "Enter the VIN 123 into the focused field"}],
+        }
+    )
+    monkeypatch.setattr(controller, "perceive", lambda *args, **kwargs: [])
+
+    class UnexpectedSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("planner should handle this desktop instruction")
+
+    class FakePlanner:
+        def plan(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+            viewport: tuple[int, int],
+        ) -> tuple[Action, Candidate | None]:
+            assert instruction == "Enter the VIN 123 into the focused field"
+            return Action(kind="type_text", text="123", instruction=instruction), None
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(),
+        RecordingObserver(),
+        UnexpectedSelector(),
+        verifier=AlwaysMetVerifier(),
+        planner=FakePlanner(),
+    )
+    assert report.status == "PASS"
+    assert executor.actions[0].kind == "type_text"
+    assert executor.actions[0].text == "123"
+
+
 def test_non_click_actions_are_desktop_only() -> None:
     with pytest.raises(ValidationError):
         Scenario.model_validate(

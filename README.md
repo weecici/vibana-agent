@@ -137,16 +137,18 @@ with `Ctrl+`, `Alt+`, `Shift+` or `Super+` for a chord such as `Ctrl+A`.
 Plain desktop instructions also recognize `scroll down`, `scroll down 3 ticks`,
 `type: battery status`, `press Ctrl+A`, and `Search for "battery status"`.
 The search form types the quoted query and presses Enter. Use an explicit
-`action` in YAML when the instruction has different wording or needs scroll
-coordinates.
+`action` in YAML when you want to set the action directly or choose scroll
+coordinates. For other natural language instructions, the vision model selects
+among click, scroll, text entry and key press.
 Use a click step to focus an input before typing. Each action is recorded with
 before and after screenshots and must pass the step's visual verification.
 Typing and key presses run once per step; an uncertain visual result fails the
 step without sending the same input again.
-The model cannot run shell commands or choose coordinates outside detected
-click candidates. Each step has a three-attempt budget by default. Live pointer
-actions run inside the selected region after a target stability check. Use a
-test application and a narrow region for initial runs.
+The model cannot run shell commands. Click coordinates come from detected
+candidates; scroll coordinates must stay within the selected region. Each step
+has a three-attempt budget by default. Live pointer actions run inside the
+selected region after a target stability check. Use a test application and a
+narrow region for initial runs.
 
 ## Run the bundled mock benchmark
 
