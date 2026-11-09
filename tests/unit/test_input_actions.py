@@ -201,6 +201,41 @@ def test_plain_desktop_input_instructions_route_without_click_selection(
     assert executor.actions[0].kind == kind
 
 
+def test_search_instruction_types_query_and_submits_it() -> None:
+    query = "How to become AI Engineer"
+    scenario = Scenario.model_validate(
+        {
+            "name": "search",
+            "target": "desktop",
+            "steps": [{"instruction": f'Search for "{query}"'}],
+        }
+    )
+
+    class UnexpectedSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("search instruction must route to keyboard input")
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(),
+        RecordingObserver(),
+        UnexpectedSelector(),
+        verifier=AlwaysMetVerifier(),
+    )
+    assert report.status == "PASS"
+    assert executor.actions[0].kind == "type_text"
+    assert executor.actions[0].text == query
+    assert executor.actions[0].submit
+
+
 def test_non_click_actions_are_desktop_only() -> None:
     with pytest.raises(ValidationError):
         Scenario.model_validate(

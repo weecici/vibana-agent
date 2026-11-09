@@ -135,8 +135,10 @@ control. `key_press` accepts letters, digits, F1–F12, Enter, Tab, Escape,
 Backspace, Delete, arrows, Home, End, PageUp, PageDown and Space; prefix a key
 with `Ctrl+`, `Alt+`, `Shift+` or `Super+` for a chord such as `Ctrl+A`.
 Plain desktop instructions also recognize `scroll down`, `scroll down 3 ticks`,
-`type: battery status`, and `press Ctrl+A`. Use an explicit `action` in YAML
-when the instruction has different wording or needs scroll coordinates.
+`type: battery status`, `press Ctrl+A`, and `Search for "battery status"`.
+The search form types the quoted query and presses Enter. Use an explicit
+`action` in YAML when the instruction has different wording or needs scroll
+coordinates.
 Use a click step to focus an input before typing. Each action is recorded with
 before and after screenshots and must pass the step's visual verification.
 Typing and key presses run once per step; an uncertain visual result fails the

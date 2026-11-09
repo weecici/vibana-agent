@@ -199,11 +199,11 @@ def test_desktop_routes_scroll_and_keyboard_with_fresh_capture() -> None:
     with pytest.raises(SafetyError, match="fresh screenshot"):
         executor.perform(Action(kind="type_text", text="hello"))
     executor.capture()
-    executor.perform(Action(kind="type_text", text="hello"))
+    executor.perform(Action(kind="type_text", text="hello", submit=True))
     executor.capture()
-    executor.perform(Action(kind="key_press", key="Enter"))
+    executor.perform(Action(kind="key_press", key="Tab"))
     assert gui.typed == ["hello"]
-    assert gui.keys == ["Enter"]
+    assert gui.keys == ["Enter", "Tab"]
 
 
 def test_desktop_rejects_scroll_outside_region() -> None:

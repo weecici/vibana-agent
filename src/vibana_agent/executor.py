@@ -122,6 +122,8 @@ class DesktopExecutor:
         elif action.kind == "type_text":
             assert action.text is not None
             self._gui.type_text(action.text)
+            if action.submit:
+                self._gui.key_press("Enter")
         else:
             assert action.key is not None
             try:

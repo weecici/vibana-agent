@@ -49,6 +49,7 @@ class TypeTextSpec(StrictModel):
 
     kind: Literal["type_text"]
     text: str = Field(min_length=1, max_length=1000)
+    submit: bool = False
 
     @model_validator(mode="after")
     def require_supported_text(self) -> "TypeTextSpec":
@@ -129,6 +130,7 @@ class Action(StrictModel):
     direction: Literal["up", "down", "left", "right"] | None = None
     ticks: int | None = Field(default=None, ge=1, le=20)
     text: str | None = None
+    submit: bool = False
     key: str | None = None
     instruction: str | None = None
     target_label: str | None = None
@@ -143,7 +145,9 @@ class Action(StrictModel):
         if self.kind == "type_text" and not self.text:
             raise ValueError("type_text requires text")
         if self.kind == "type_text" and self.text is not None:
-            TypeTextSpec(kind="type_text", text=self.text)
+            TypeTextSpec(kind="type_text", text=self.text, submit=self.submit)
+        if self.kind != "type_text" and self.submit:
+            raise ValueError("submit is only valid for type_text")
         if self.kind == "key_press" and not self.key:
             raise ValueError("key_press requires key")
         return self

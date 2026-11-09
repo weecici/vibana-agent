@@ -35,6 +35,11 @@ def _infer_desktop_action(
     text = instruction.strip()
     lowered = text.casefold()
     try:
+        search = re.fullmatch(
+            r"search\s+for\s+(['\"])(.+?)\1", text, flags=re.IGNORECASE
+        )
+        if search is not None:
+            return TypeTextSpec(kind="type_text", text=search.group(2), submit=True)
         if lowered.startswith("scroll "):
             match = re.fullmatch(
                 r"scroll\s+(up|down|left|right)(?:\s+(\d+)(?:\s+ticks?)?)?",
@@ -195,6 +200,7 @@ def run_scenario(
                     action = Action(
                         kind="type_text",
                         text=action_spec.text,
+                        submit=action_spec.submit,
                         instruction=step.instruction,
                     )
                 elif isinstance(action_spec, KeyPressSpec):
