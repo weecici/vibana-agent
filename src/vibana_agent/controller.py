@@ -247,7 +247,7 @@ def run_scenario(
                     )
                     if (
                         isinstance(action_spec, ClickSpec)
-                        and action_spec.wait_after_ms > 0
+                        and "wait_after_ms" in action_spec.model_fields_set
                     ):
                         action = action.model_copy(
                             update={"wait_after_ms": action_spec.wait_after_ms}

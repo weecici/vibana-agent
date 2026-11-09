@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from vibana_agent import controller, desktop
 from vibana_agent.config import Settings
 from vibana_agent.desktop import VirtualPointerBackend
-from vibana_agent.schema import Action, Candidate, Evidence, Scenario
+from vibana_agent.schema import Action, Box, Candidate, Evidence, Scenario
 
 
 def frame(color: str) -> bytes:
@@ -316,6 +316,71 @@ def test_action_wait_is_limited_to_ten_seconds() -> None:
                 ],
             }
         )
+
+
+def test_explicit_zero_wait_overrides_planner_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = Candidate(id=1, box=Box(x=20, y=30, width=60, height=40))
+    scenario = Scenario.model_validate(
+        {
+            "name": "no_post_click_wait",
+            "target": "desktop",
+            "steps": [
+                {
+                    "instruction": "Open the page",
+                    "action": {"kind": "click", "wait_after_ms": 0},
+                }
+            ],
+        }
+    )
+    monkeypatch.setattr(controller, "perceive", lambda *args, **kwargs: [candidate])
+    waits: list[float] = []
+    monkeypatch.setattr(controller, "sleep", waits.append)
+
+    class UnexpectedSelector:
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("planner should select the click candidate")
+
+    class FakePlanner:
+        def plan(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+            viewport: tuple[int, int],
+        ) -> tuple[Action, Candidate | None]:
+            return (
+                Action(
+                    kind="click",
+                    x=50,
+                    y=50,
+                    wait_after_ms=3000,
+                    instruction=instruction,
+                ),
+                candidate,
+            )
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(),
+        RecordingObserver(),
+        UnexpectedSelector(),
+        verifier=AlwaysMetVerifier(),
+        planner=FakePlanner(),
+    )
+    assert report.status == "PASS"
+    assert executor.actions[0].wait_after_ms == 0
+    assert waits == []
 
 
 def test_search_instruction_uses_explicit_mapping_before_model_planner(

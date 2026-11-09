@@ -246,7 +246,7 @@ def plan_desktop_action(
         "copy the requested text exactly from the instruction and set submit=true "
         "when it asks to search. Return kind=key_press only for a requested key. "
         "Set wait_after_ms between 0 and 10000 when the action may trigger delayed "
-        "UI updates; use 0 otherwise. For submitted searches, use 2000. "
+        "UI updates; use 0 otherwise. Request a delay for searches only when needed. "
         "Do not invent text, candidate IDs, or actions. For scroll, omit x and y "
         "to use the viewport center. Give a brief rationale."
     )

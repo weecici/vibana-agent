@@ -108,6 +108,20 @@ def test_model_can_wait_after_clicking_a_slow_control() -> None:
     assert action.wait_after_ms == 2500
 
 
+def test_noncanonical_search_has_no_implicit_wait() -> None:
+    action, candidate = parse_desktop_action(
+        '{"kind":"type_text","text":"AI engineering jobs",'
+        '"submit":true,"reason":"search the requested phrase"}',
+        "Search for AI engineering jobs",
+        [],
+        (960, 1048),
+    )
+    assert candidate is None
+    assert action.kind == "type_text"
+    assert action.submit
+    assert action.wait_after_ms == 0
+
+
 def test_desktop_action_rejects_model_invented_text() -> None:
     with pytest.raises(GroundingError, match="from the instruction"):
         parse_desktop_action(

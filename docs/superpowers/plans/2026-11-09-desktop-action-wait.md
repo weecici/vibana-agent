@@ -24,6 +24,7 @@
 - A duration above 10,000 ms should fail validation before execution.
 - The search default should apply only to the recognized quoted-search syntax.
 - Model-selected waits must pass through the same duration bound as YAML actions.
+- An explicit `wait_after_ms: 0` should override a planner-selected delay.
 - Waiting must occur after input and before the after-image is captured.
 
 ---
