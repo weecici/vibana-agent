@@ -10,7 +10,12 @@ from PIL import Image, ImageDraw
 from pydantic import ValidationError
 
 from vibana_agent.config import Settings
-from vibana_agent.executor import Executor, SafetyError, validate_action
+from vibana_agent.executor import (
+    Executor,
+    SafetyError,
+    StaleTargetError,
+    validate_action,
+)
 from vibana_agent.grounding.ollama import GroundingError
 from vibana_agent.perception import draw_candidates, perceive
 from vibana_agent.schema import (
@@ -48,12 +53,14 @@ def _infer_desktop_action(
             )
         if lowered.startswith("scroll "):
             match = re.fullmatch(
-                r"scroll\s+(up|down|left|right)(?:\s+(\d+)(?:\s+ticks?)?)?",
+                r"scroll\s+(up|down|left|right)"
+                r"(?:\s+(?:(\d+)(?:\s+ticks?)?|a\s+(?:bit|little)|slightly))?"
+                r"[.!]?",
                 text,
                 flags=re.IGNORECASE,
             )
             if match is None:
-                raise SafetyError("use 'scroll down 3 ticks' syntax")
+                return None
             directions: dict[str, Literal["up", "down", "left", "right"]] = {
                 "up": "up",
                 "down": "down",
@@ -64,6 +71,7 @@ def _infer_desktop_action(
                 kind="scroll",
                 direction=directions[match.group(1).casefold()],
                 ticks=int(match.group(2) or "1"),
+                wait_after_ms=250,
             )
         if lowered.startswith("type:"):
             return TypeTextSpec(kind="type_text", text=text.partition(":")[2].strip())
@@ -245,6 +253,8 @@ def run_scenario(
                         settings,
                         executor.viewport(),
                     )
+                    if isinstance(action_spec, ClickSpec) and action.kind != "click":
+                        raise GroundingError("planned action must match explicit click")
                     if (
                         isinstance(action_spec, ClickSpec)
                         and "wait_after_ms" in action_spec.model_fields_set
@@ -326,6 +336,20 @@ def run_scenario(
                     break
                 if action.kind in {"type_text", "key_press"}:
                     break
+            except StaleTargetError as error:
+                attempts.append(
+                    Attempt(
+                        status="ACTION_ERROR",
+                        candidate=selected_candidate,
+                        action=selected_action,
+                        strategy=(
+                            "candidate" if selected_candidate is not None else None
+                        ),
+                        error=str(error),
+                        latency_ms=round((monotonic() - start) * 1000),
+                    )
+                )
+                continue
             except SafetyError as error:
                 attempts.append(
                     Attempt(

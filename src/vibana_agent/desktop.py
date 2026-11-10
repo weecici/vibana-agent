@@ -10,6 +10,8 @@ from typing import Protocol
 from evdev import AbsInfo, UInput, ecodes
 from PIL import Image, ImageGrab
 
+_KEY_EVENT_DELAY_S = 0.05
+
 
 class ScreenCapture(Protocol):
     """Capture a desktop rectangle in physical screen pixels."""
@@ -248,27 +250,33 @@ class VirtualPointerBackend:
         self._device.write(ecodes.EV_ABS, ecodes.ABS_X, x)
         self._device.write(ecodes.EV_ABS, ecodes.ABS_Y, y)
         self._device.syn()
+        sleep(0.05)
         code = ecodes.REL_WHEEL if direction in {"up", "down"} else ecodes.REL_HWHEEL
         value = ticks if direction in {"up", "right"} else -ticks
         self._device.write(ecodes.EV_REL, code, value)
         self._device.syn()
+        sleep(0.05)
+
+    def _key_event(self, code: int, value: int) -> None:
+        device = self._keyboard()
+        device.write(ecodes.EV_KEY, code, value)
+        device.syn()
+        # SYN_REPORT flushes to the kernel; it does not wait for the compositor.
+        # Pace releases as well as presses so repeats and Enter cannot be lost
+        # in a burst, and modifiers settle before the following character.
+        sleep(_KEY_EVENT_DELAY_S)
 
     def _tap(self, code: int, shift: bool = False) -> None:
-        device = self._keyboard()
-        if shift:
-            device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
-            device.syn()
         try:
-            device.write(ecodes.EV_KEY, code, 1)
+            if shift:
+                self._key_event(ecodes.KEY_LEFTSHIFT, 1)
             try:
-                device.syn()
+                self._key_event(code, 1)
             finally:
-                device.write(ecodes.EV_KEY, code, 0)
-                device.syn()
+                self._key_event(code, 0)
         finally:
             if shift:
-                device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
-                device.syn()
+                self._key_event(ecodes.KEY_LEFTSHIFT, 0)
 
     def type_text(self, value: str) -> None:
         """Type printable US-layout ASCII plus newline and tab."""
@@ -309,6 +317,7 @@ class VirtualPointerBackend:
             "\n": ("ENTER", False),
             "\t": ("TAB", False),
         }
+        keystrokes: list[tuple[int, bool]] = []
         for character in value:
             if character.isascii() and character.isalpha():
                 name, shift = character.upper(), character.isupper()
@@ -318,7 +327,9 @@ class VirtualPointerBackend:
                 name, shift = punctuation[character]
             else:
                 raise ValueError("type_text supports printable US-layout ASCII")
-            self._tap(int(getattr(ecodes, f"KEY_{name}")), shift)
+            keystrokes.append((int(getattr(ecodes, f"KEY_{name}")), shift))
+        for code, shift in keystrokes:
+            self._tap(code, shift)
 
     def key_press(self, key: str) -> None:
         """Press one named key with optional Ctrl, Alt, Shift or Super modifiers."""
@@ -360,24 +371,33 @@ class VirtualPointerBackend:
         elif final in named:
             name = named[final]
         elif (
-            final.startswith("F") and final[1:].isdigit() and 1 <= int(final[1:]) <= 12
+            final.startswith("F")
+            and final[1:].isascii()
+            and final[1:].isdigit()
+            and 1 <= int(final[1:]) <= 12
         ):
-            name = final
+            name = f"F{int(final[1:])}"
         else:
             raise ValueError("unsupported key")
-        device = self._keyboard()
         pressed: list[int] = []
         try:
             for part in prefix:
                 code = modifiers[part]
-                device.write(ecodes.EV_KEY, code, 1)
                 pressed.append(code)
-                device.syn()
+                self._key_event(code, 1)
             self._tap(int(getattr(ecodes, f"KEY_{name}")))
         finally:
+            release_error: BaseException | None = None
             for code in reversed(pressed):
-                device.write(ecodes.EV_KEY, code, 0)
-                device.syn()
+                try:
+                    self._key_event(code, 0)
+                except BaseException as error:
+                    # Still release the remaining modifiers after a failed
+                    # write or an interruption during a release delay.
+                    if release_error is None:
+                        release_error = error
+            if release_error is not None:
+                raise release_error
 
     def close(self) -> None:
         """Close the virtual pointer device."""

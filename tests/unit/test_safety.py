@@ -206,6 +206,26 @@ def test_desktop_routes_scroll_and_keyboard_with_fresh_capture() -> None:
     assert gui.keys == ["Enter", "Tab"]
 
 
+def test_partial_input_failure_consumes_fresh_screenshot() -> None:
+    """A partial input must not permit another action from the same old frame."""
+
+    class BrokenGui(FakeDesktopGui):
+        def type_text(self, value: str) -> None:
+            self.typed.append(value[:1])
+            raise OSError("input device disconnected after first character")
+
+    gui = BrokenGui()
+    executor = DesktopExecutor(
+        Box(x=100, y=100, width=300, height=200), gui=gui, session_type="wayland"
+    )
+    executor.capture()
+    with pytest.raises(OSError, match="disconnected"):
+        executor.perform(Action(kind="type_text", text="hello", submit=True))
+    with pytest.raises(SafetyError, match="fresh screenshot"):
+        executor.perform(Action(kind="key_press", key="Enter"))
+    assert gui.keys == []
+
+
 def test_desktop_rejects_scroll_outside_region() -> None:
     gui = FakeDesktopGui()
     executor = DesktopExecutor(

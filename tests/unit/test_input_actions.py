@@ -163,6 +163,9 @@ def test_unverified_keyboard_action_is_not_repeated(kind: str) -> None:
     ("instruction", "kind"),
     [
         ("scroll down 3 ticks", "scroll"),
+        ("Scroll down a bit", "scroll"),
+        ("Scroll up a little.", "scroll"),
+        ("Scroll right slightly", "scroll"),
         ("type: battery status", "type_text"),
         ("press Ctrl+A", "key_press"),
     ],
@@ -238,6 +241,57 @@ def test_search_instruction_types_query_and_submits_it(
     assert executor.actions[0].text == query
     assert executor.actions[0].submit
     assert executor.actions[0].wait_after_ms == 2000
+
+
+def test_contextual_scroll_reaches_desktop_planner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shorthand parser must not reject a scroll requiring visual context."""
+    scenario = Scenario.model_validate(
+        {
+            "name": "contextual_scroll",
+            "target": "desktop",
+            "steps": [{"instruction": "Scroll down in the results pane"}],
+        }
+    )
+    monkeypatch.setattr(controller, "perceive", lambda *args, **kwargs: [])
+
+    class Planner:
+        def plan(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+            viewport: tuple[int, int],
+        ) -> tuple[Action, Candidate | None]:
+            return (
+                Action(kind="scroll", x=250, y=100, direction="down", ticks=2),
+                None,
+            )
+
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("contextual scroll must use the planner")
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(),
+        RecordingObserver(),
+        Planner(),
+        verifier=AlwaysMetVerifier(),
+        planner=Planner(),
+    )
+    assert report.status == "PASS"
+    assert executor.actions[0].kind == "scroll"
+    assert (executor.actions[0].x, executor.actions[0].y) == (250, 100)
 
 
 def test_action_waits_before_capturing_after_image(
@@ -381,6 +435,62 @@ def test_explicit_zero_wait_overrides_planner_wait(
     assert report.status == "PASS"
     assert executor.actions[0].wait_after_ms == 0
     assert waits == []
+
+
+@pytest.mark.parametrize(
+    "proposed",
+    [
+        Action(kind="type_text", text="unrequested input"),
+        Action(kind="key_press", key="Enter"),
+        Action(kind="scroll", x=50, y=50, direction="down", ticks=1),
+    ],
+)
+def test_explicit_click_cannot_be_replaced_by_another_action(
+    monkeypatch: pytest.MonkeyPatch, proposed: Action
+) -> None:
+    """A model proposal cannot override the scenario's explicit action kind."""
+    scenario = Scenario.model_validate(
+        {
+            "name": "explicit_click",
+            "target": "desktop",
+            "steps": [{"instruction": "Focus input", "action": {"kind": "click"}}],
+        }
+    )
+    monkeypatch.setattr(controller, "perceive", lambda *args, **kwargs: [])
+
+    class Planner:
+        def plan(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+            viewport: tuple[int, int],
+        ) -> tuple[Action, Candidate | None]:
+            return proposed, None
+
+        def select(
+            self,
+            image: bytes,
+            instruction: str,
+            candidates: list[Candidate],
+            settings: Settings,
+        ) -> Candidate:
+            raise AssertionError("the desktop planner should handle the click")
+
+    executor = RecordingExecutor()
+    report = controller.run_scenario(
+        scenario,
+        executor,
+        Settings(max_attempts=1),
+        RecordingObserver(),
+        Planner(),
+        verifier=AlwaysMetVerifier(),
+        planner=Planner(),
+    )
+    assert executor.actions == []
+    assert report.steps[0].status == "ERROR"
+    assert report.steps[0].attempts[0].status == "ACTION_ERROR"
 
 
 def test_search_instruction_uses_explicit_mapping_before_model_planner(

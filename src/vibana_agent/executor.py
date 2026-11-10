@@ -28,10 +28,29 @@ from vibana_agent.schema import Action, Box, Candidate
 
 logger = logging.getLogger(__name__)
 _DESKTOP_STABILITY_RADIUS_PX = 32
+_TARGET_PIXEL_DIFFERENCE_THRESHOLD = 32
+_TARGET_CHANGE_RATIO_THRESHOLD = 0.15
+
+
+def _target_changed(
+    before: Image.Image, current: Image.Image, bounds: tuple[int, int, int, int]
+) -> bool:
+    """Return whether a meaningful portion of a click target changed visually."""
+    difference = ImageChops.difference(
+        before.crop(bounds), current.crop(bounds)
+    ).convert("L")
+    histogram = difference.histogram()
+    changed_pixels = sum(histogram[_TARGET_PIXEL_DIFFERENCE_THRESHOLD + 1 :])
+    total_pixels = difference.width * difference.height
+    return changed_pixels / total_pixels >= _TARGET_CHANGE_RATIO_THRESHOLD
 
 
 class SafetyError(ValueError):
     """An action violates the local prototype's input policy."""
+
+
+class StaleTargetError(SafetyError):
+    """A click target changed during planning and should be selected again."""
 
 
 class DesktopExecutor:
@@ -95,23 +114,23 @@ class DesktopExecutor:
             raise SafetyError("pointer is outside the desktop region")
         if self._before is None:
             raise SafetyError("a fresh screenshot is required before input")
+        before = self._before
+        self._before = None
         if action.kind in {"click", "scroll"}:
             assert action.x is not None and action.y is not None
-            current = self._screenshot()
-            radius = _DESKTOP_STABILITY_RADIUS_PX
-            target_bounds = (
-                max(0, action.x - radius),
-                max(0, action.y - radius),
-                min(self._region.width, action.x + radius + 1),
-                min(self._region.height, action.y + radius + 1),
-            )
-            before_target = self._before.crop(target_bounds)
-            current_target = current.crop(target_bounds)
-            if (
-                ImageChops.difference(before_target, current_target).getbbox()
-                is not None
-            ):
-                raise SafetyError("desktop target changed before the input")
+            if action.kind == "click":
+                current = self._screenshot()
+                radius = _DESKTOP_STABILITY_RADIUS_PX
+                target_bounds = (
+                    max(0, action.x - radius),
+                    max(0, action.y - radius),
+                    min(self._region.width, action.x + radius + 1),
+                    min(self._region.height, action.y + radius + 1),
+                )
+                if _target_changed(before, current, target_bounds):
+                    raise StaleTargetError(
+                        "desktop target changed during planning"
+                    )
             x = self._region.x + action.x
             y = self._region.y + action.y
             if action.kind == "click":
@@ -130,7 +149,6 @@ class DesktopExecutor:
                 self._gui.key_press(action.key)
             except ValueError as error:
                 raise SafetyError(str(error)) from error
-        self._before = None
 
     def viewport(self) -> tuple[int, int]:
         """Return the selected region dimensions in local screenshot pixels."""
